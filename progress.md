@@ -1,7 +1,7 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-02-28
-**Ветка:** claude/init-project-structure-v6niF
+**Последнее обновление:** 2026-03-01
+**Ветка:** claude/configure-project-settings-1zQKY
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
 
@@ -10,7 +10,7 @@
 ## ЭТАП 1 — Фундамент проекта
 
 - [x] Шаг 1.1 — Инициализация репозитория и структуры проекта (2026-02-28)
-- [ ] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings)
+- [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
 - [ ] Шаг 1.3 — SharedState и модели данных
 - [ ] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
 - [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
@@ -82,3 +82,30 @@
 ```
 
 **Следующий шаг:** Шаг 1.2 — Реализовать `nova/config/settings.py` с Pydantic BaseSettings
+
+---
+
+### 2026-03-01 — Шаг 1.2
+
+**Выполнено:**
+- Реализован `nova/config/settings.py`: класс `Settings` на базе `pydantic_settings.BaseSettings`
+  - Все переменные окружения из `.env.example` типизированы (SecretStr для секретов)
+  - Singleton `settings` экспортируется для использования по всему приложению
+  - Свойство `is_production` для проверки среды выполнения
+- Реализован `nova/config/logging.py`: функция `setup_logging(level=None)`
+  - Структурированный формат лога: `дата | уровень | модуль | сообщение`
+  - Явная установка уровня корневого логгера (работает даже при уже настроенных handlers)
+  - Подавление шумных логгеров (httpx, httpcore) до WARNING
+  - Автоматическая активация LangSmith-трейсинга при `LANGCHAIN_TRACING_V2=true`
+- Обновлён `nova/config/__init__.py`: re-export `settings` и `setup_logging`
+- Создан `tests/unit/test_settings.py`: 12 unit-тестов
+
+**Проверка:**
+```
+✅ python -m pytest tests/unit/test_settings.py -v  →  12 passed
+✅ from nova.config import settings, setup_logging  →  импорт без ошибок
+✅ settings.app_env  →  'development'
+✅ settings.is_production  →  False
+```
+
+**Следующий шаг:** Шаг 1.3 — SharedState и модели данных
