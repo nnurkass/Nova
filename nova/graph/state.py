@@ -17,4 +17,36 @@ ConstructionState is a TypedDict that carries all data between agents:
 Implemented in Step 1.3.
 """
 
-# TODO: Step 1.3.1 — implement ConstructionState TypedDict
+from typing import Annotated, Any
+
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+from typing_extensions import TypedDict
+
+from nova.integrations.abc.models import ABCMaterial, ABCWork
+from nova.integrations.goszakup.models import Tender
+
+
+class ConstructionState(TypedDict, total=False):
+    # Original user task description
+    task: str
+    # List of tenders found from goszakup.gov.kz
+    tenders: list[Tender]
+    # Tender selected for full processing
+    selected_tender: Tender | None
+    # Extracted work items from tender documentation
+    work_list: list[ABCWork]
+    # Required materials derived from work list
+    materials_list: list[ABCMaterial]
+    # Inventory check results: {material_code: qty_available}
+    stock_check: dict[str, Any]
+    # Generated purchase order records
+    purchase_orders: list[dict[str, Any]]
+    # Name of currently active agent
+    current_agent: str
+    # Conversation history with LangGraph add_messages reducer
+    messages: Annotated[list[BaseMessage], add_messages]
+    # Accumulated error messages during pipeline execution
+    errors: list[str]
+    # Pipeline metadata: timestamps, trace_id, task_id, etc.
+    metadata: dict[str, Any]

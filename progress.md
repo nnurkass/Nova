@@ -1,7 +1,7 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-01
-**Ветка:** claude/configure-project-settings-1zQKY
+**Последнее обновление:** 2026-03-02
+**Ветка:** claude/stage-1-step-3-J9AVP
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
 
@@ -11,7 +11,7 @@
 
 - [x] Шаг 1.1 — Инициализация репозитория и структуры проекта (2026-02-28)
 - [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
-- [ ] Шаг 1.3 — SharedState и модели данных
+- [x] Шаг 1.3 — SharedState и модели данных (2026-03-02)
 - [ ] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
 - [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
 
@@ -46,6 +46,45 @@
 - [ ] Шаг 5.3 — Полное тестовое покрытие
 - [ ] Шаг 5.4 — Мониторинг и логирование
 - [ ] Шаг 5.5 — Деплой и финальная документация
+
+---
+
+### 2026-03-02 — Шаг 1.3
+
+**Выполнено:**
+- Реализован `nova/integrations/goszakup/models.py`: 4 Pydantic-модели
+  - `TenderLot` — лот тендера (id, lot_number, name, budget, quantity, unit, ...)
+  - `Tender` — тендер (id, number, name, budget, status, region, lots, documents, ...)
+  - `TenderSearchFilter` — параметры поиска (region, work_type, budget_min/max, deadline_from/to, limit)
+  - `TenderScore` — результат скоринга (5 sub-scores + total_score + recommendation: HIGH/MEDIUM/LOW)
+- Реализован `nova/integrations/abc/models.py`: 4 Pydantic-модели
+  - `ABCWork` — работа (code, name, unit, quantity, unit_price, total_price, chapter, section)
+  - `ABCMaterial` — материал (code, name, unit, quantity, unit_price, total_price, supplier)
+  - `ResourceStatement` — ресурсная ведомость (works, materials, total_cost)
+  - `EstimatePosition` — позиция сметы (type: Literal["work", "material", "machine"])
+- Реализован `nova/api/schemas.py`: 4 FastAPI-схемы + Enum
+  - `TaskStatusEnum` — PENDING / RUNNING / COMPLETED / FAILED
+  - `TaskRequest` — входные данные задачи
+  - `TaskResponse` — ответ с task_id и статусом
+  - `TaskStatus` — текущее состояние задачи (с progress_pct 0–100)
+  - `AgentReport` — финальный отчёт пайплайна
+- Реализован `nova/graph/state.py`: `ConstructionState(TypedDict, total=False)`
+  - Все 11 полей с правильными типами
+  - `messages: Annotated[list[BaseMessage], add_messages]` — reducer LangGraph
+  - Импортирует модели goszakup и abc
+- Создан `tests/unit/test_state.py`: 44 unit-теста
+  - TestTenderLot (4), TestTender (5), TestTenderSearchFilter (3), TestTenderScore (2)
+  - TestABCWork (4), TestABCMaterial (3), TestResourceStatement (3), TestEstimatePosition (4)
+  - TestTaskRequest (3), TestTaskResponse (2), TestTaskStatus (3), TestAgentReport (2)
+  - TestConstructionState (6)
+
+**Проверка:**
+```
+✅ python -c "from nova.graph.state import ConstructionState; s = ConstructionState(task='test'); print('State OK')"  →  State OK
+✅ python -m pytest tests/unit/ -v  →  56 passed (12 старых + 44 новых)
+```
+
+**Следующий шаг:** Шаг 1.4 — Поднять PostgreSQL (Docker), создать SQLAlchemy модели, настроить Alembic
 
 ---
 
@@ -108,4 +147,4 @@
 ✅ settings.is_production  →  False
 ```
 
-**Следующий шаг:** Шаг 1.3 — SharedState и модели данных
+**Следующий шаг:** Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
