@@ -10,17 +10,23 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import Base + all models so autogenerate sees every table
+# Import Base so autogenerate sees every table (all model classes defined in the same module)
 from nova.db.models import Base  # noqa: F401
-from nova.db import models  # noqa: F401
 
 config = context.config
 
-try:
-    from nova.config.settings import settings
-    config.set_main_option("sqlalchemy.url", settings.database_url)
-except Exception:
-    pass  # allow alembic --help without .env
+# Override sqlalchemy.url with the value from application settings.
+# Check DATABASE_URL env var first; fall back to loading settings from .env.
+# Only suppress errors when no .env is present (alembic --help mode).
+_db_url = os.environ.get("DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
+else:
+    try:
+        from nova.config.settings import settings
+        config.set_main_option("sqlalchemy.url", settings.database_url)
+    except Exception:
+        pass  # no .env present; alembic --help mode
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
