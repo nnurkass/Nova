@@ -47,3 +47,38 @@ class TestGoszakupModels:
         )
         assert score.total_score == 85.0
         assert score.recommendation == "HIGH"
+
+
+# ── 1.3.3  ABC models ─────────────────────────────────────────────────
+class TestABCModels:
+    def test_abc_work_creation(self):
+        from nova.integrations.abc.models import ABCWork
+        work = ABCWork(code="6.1.2-1.1", name="Земляные работы", unit="м3", quantity=150.0)
+        assert work.code == "6.1.2-1.1"
+        assert work.price is None
+
+    def test_abc_material_creation(self):
+        from nova.integrations.abc.models import ABCMaterial
+        mat = ABCMaterial(code="245-1234", name="Арматура А500С", unit="т", quantity=5.5)
+        assert mat.quantity == 5.5
+        assert mat.price is None
+
+    def test_resource_statement_defaults(self):
+        from nova.integrations.abc.models import ResourceStatement
+        stmt = ResourceStatement()
+        assert stmt.works == []
+        assert stmt.materials == []
+        assert stmt.tender_id is None
+
+    def test_estimate_position_is_work_flag(self):
+        from nova.integrations.abc.models import EstimatePosition
+        pos = EstimatePosition(
+            position_number=1,
+            code="6.1.2-1.1",
+            name="Земляные работы",
+            unit="м3",
+            quantity=100.0,
+            is_work=True,
+        )
+        assert pos.is_work is True
+        assert pos.unit_price is None
