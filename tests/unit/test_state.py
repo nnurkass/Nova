@@ -82,3 +82,51 @@ class TestABCModels:
         )
         assert pos.is_work is True
         assert pos.unit_price is None
+
+
+# ── 1.3.4  API schemas ────────────────────────────────────────────────
+class TestAPISchemas:
+    def test_task_request_requires_task(self):
+        import pytest
+        from pydantic import ValidationError
+        from nova.api.schemas import TaskRequest
+        with pytest.raises(ValidationError):
+            TaskRequest()  # task is required
+
+    def test_task_request_creation(self):
+        from nova.api.schemas import TaskRequest
+        req = TaskRequest(task="Найти тендер на строительство в Алматы")
+        assert req.task == "Найти тендер на строительство в Алматы"
+        assert req.region is None
+        assert req.budget_max is None
+
+    def test_task_status_enum_values(self):
+        from nova.api.schemas import TaskStatusEnum
+        assert TaskStatusEnum.PENDING == "pending"
+        assert TaskStatusEnum.RUNNING == "running"
+        assert TaskStatusEnum.COMPLETED == "completed"
+        assert TaskStatusEnum.FAILED == "failed"
+
+    def test_task_response_has_uuid(self):
+        from uuid import UUID
+        from nova.api.schemas import TaskResponse, TaskStatusEnum
+        from datetime import datetime, timezone
+        resp = TaskResponse(
+            task_id=UUID("12345678-1234-5678-1234-567812345678"),
+            status=TaskStatusEnum.PENDING,
+            created_at=datetime.now(timezone.utc),
+        )
+        assert isinstance(resp.task_id, UUID)
+
+    def test_agent_report_defaults(self):
+        from uuid import UUID
+        from datetime import datetime, timezone
+        from nova.api.schemas import AgentReport
+        report = AgentReport(
+            task_id=UUID("12345678-1234-5678-1234-567812345678"),
+            task="тест",
+            recommendations="Рекомендуется участвовать",
+            created_at=datetime.now(timezone.utc),
+        )
+        assert report.purchase_orders == []
+        assert report.selected_tender is None
