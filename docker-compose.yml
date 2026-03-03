@@ -4,15 +4,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: nova
-      POSTGRES_PASSWORD: nova
-      POSTGRES_DB: nova
+      POSTGRES_USER: nova_user
+      POSTGRES_PASSWORD: nova_pass
+      POSTGRES_DB: nova_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nova"]
+      test: ["CMD-SHELL", "pg_isready -U nova_user"]
       interval: 5s
       timeout: 5s
       retries: 5
