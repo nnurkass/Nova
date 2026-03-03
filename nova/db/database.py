@@ -19,10 +19,13 @@ def get_engine(url: str, **kwargs) -> Engine:
 
 @contextmanager
 def get_session(eng: Engine) -> Generator[Session, None, None]:
-    """Context manager yielding an open Session. Caller handles commit/rollback."""
+    """Context manager yielding an open Session. Caller handles commit."""
     session = Session(eng)
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
