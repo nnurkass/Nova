@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-01
+**Последнее обновление:** 2026-03-03
 **Ветка:** claude/configure-project-settings-1zQKY
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -11,7 +11,7 @@
 
 - [x] Шаг 1.1 — Инициализация репозитория и структуры проекта (2026-02-28)
 - [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
-- [ ] Шаг 1.3 — SharedState и модели данных
+- [x] Шаг 1.3 — SharedState и модели данных (2026-03-03)
 - [ ] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
 - [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
 
@@ -109,3 +109,26 @@
 ```
 
 **Следующий шаг:** Шаг 1.3 — SharedState и модели данных
+
+---
+
+### 2026-03-03 — Шаг 1.3
+
+**Выполнено:**
+- Реализован `nova/graph/state.py`: класс `ConstructionState(TypedDict)` с 11 полями
+  - `messages: Annotated[list[AnyMessage], add_messages]` — накопительный редьюсер LangGraph
+  - Поля типизированы Pydantic-моделями (Tender, ABCWork, ABCMaterial)
+- Реализованы `nova/integrations/goszakup/models.py`: Tender, TenderLot, TenderSearchFilter, TenderScore
+- Реализованы `nova/integrations/abc/models.py`: ABCWork, ABCMaterial, ResourceStatement, EstimatePosition
+- Реализованы `nova/api/schemas.py`: TaskRequest, TaskResponse, TaskStatus, AgentReport, TaskStatusEnum
+- Создан `tests/unit/test_state.py`: 17 unit-тестов (4 классов)
+- Создан `.env` с тестовыми значениями (требуется для загрузки `nova.config.settings`)
+
+**Проверка:**
+```
+✅ python -m pytest tests/unit/test_state.py -v  →  17 passed
+✅ python -m pytest tests/ -v  →  29 passed
+✅ All imports OK
+```
+
+**Следующий шаг:** Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
