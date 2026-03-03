@@ -65,9 +65,12 @@ class TestTaskCRUD:
         task = Task(status="pending", input_text="тест")
         session.add(task)
         session.flush()
+        assert task.updated_at is not None
         task.status = "running"
         session.flush()
-        assert session.get(Task, task.id).status == "running"
+        fetched = session.get(Task, task.id)
+        assert fetched.status == "running"
+        assert fetched.updated_at is not None
 
     def test_task_with_output(self, session):
         task = Task(status="completed", input_text="тест", output_json={"result": "ok"})
@@ -144,8 +147,10 @@ class TestDatabaseHelpers:
         eng.dispose()
 
     def test_get_session_is_context_manager(self):
+        from sqlalchemy import text
         eng = get_engine("sqlite:///:memory:")
         Base.metadata.create_all(eng)
         with get_session(eng) as s:
             assert isinstance(s, Session)
+            s.execute(text("SELECT 1"))
         eng.dispose()
