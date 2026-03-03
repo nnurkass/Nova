@@ -1,6 +1,6 @@
 """Pydantic data models for goszakup.gov.kz API responses."""
 from __future__ import annotations
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -52,4 +52,4 @@ class TenderScore(BaseModel):
     region_score: float
     purchase_type_score: float
     history_score: float
-    recommendation: str  # "HIGH" | "MEDIUM" | "LOW"
+    recommendation: Literal["HIGH", "MEDIUM", "LOW"]
