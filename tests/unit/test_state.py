@@ -130,3 +130,68 @@ class TestAPISchemas:
         )
         assert report.purchase_orders == []
         assert report.selected_tender is None
+
+
+# ── 1.3.1  ConstructionState ──────────────────────────────────────────
+class TestConstructionState:
+    def test_state_creation_minimal(self):
+        from nova.graph.state import ConstructionState
+        state: ConstructionState = {
+            "task": "найти тендер на строительство",
+            "tenders": [],
+            "selected_tender": None,
+            "work_list": [],
+            "materials_list": [],
+            "stock_check": {},
+            "purchase_orders": [],
+            "current_agent": "",
+            "messages": [],
+            "errors": [],
+            "metadata": {},
+        }
+        assert state["task"] == "найти тендер на строительство"
+        assert state["messages"] == []
+
+    def test_state_messages_field_type(self):
+        """messages field uses add_messages reducer — verify annotation exists."""
+        import typing
+        from nova.graph.state import ConstructionState
+        hints = typing.get_type_hints(ConstructionState, include_extras=True)
+        assert "messages" in hints
+        # Annotated type has __metadata__
+        assert hasattr(hints["messages"], "__metadata__")
+
+    def test_state_with_tender(self):
+        from nova.graph.state import ConstructionState
+        from nova.integrations.goszakup.models import Tender
+        tender = Tender(
+            id=1, number="АНО-001", name_ru="Тест",
+            status_id=1, trd_buy_type_id=1,
+            organizer_id=1, organizer_bin="000000000000",
+            organizer_name_ru="Тест Орг",
+        )
+        state: ConstructionState = {
+            "task": "тест",
+            "tenders": [tender],
+            "selected_tender": tender,
+            "work_list": [],
+            "materials_list": [],
+            "stock_check": {},
+            "purchase_orders": [],
+            "current_agent": "procurement",
+            "messages": [],
+            "errors": [],
+            "metadata": {"started_at": "2026-03-03"},
+        }
+        assert len(state["tenders"]) == 1
+        assert state["current_agent"] == "procurement"
+
+    def test_messages_accumulate_with_reducer(self):
+        """Simulate LangGraph's add_messages reducer behaviour."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        from langgraph.graph.message import add_messages
+        msgs: list = []
+        msgs = add_messages(msgs, [HumanMessage(content="hello")])
+        msgs = add_messages(msgs, [AIMessage(content="world")])
+        assert len(msgs) == 2
+        assert msgs[0].content == "hello"
