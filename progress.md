@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-03
+**Последнее обновление:** 2026-03-03 (Шаг 1.4)
 **Ветка:** claude/configure-project-settings-1zQKY
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -12,12 +12,12 @@
 - [x] Шаг 1.1 — Инициализация репозитория и структуры проекта (2026-02-28)
 - [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
 - [x] Шаг 1.3 — SharedState и модели данных (2026-03-03)
-- [ ] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
+- [x] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic) (2026-03-03)
 - [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
 
 ## ЭТАП 2 — Интеграции и инструменты
 
-- [ ] Шаг 2.1 — GraphQL-клиент goszakup.gov.kz
+- [ ] Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
 - [ ] Шаг 2.2 — Инструменты поиска и оценки тендеров
 - [ ] Шаг 2.3 — Парсер документов (PDF/DOCX)
 - [ ] Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
@@ -132,3 +132,47 @@
 ```
 
 **Следующий шаг:** Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic)
+
+---
+
+### 2026-03-03 — Шаг 1.4
+
+**Выполнено:**
+- Создан `docker-compose.yml` с сервисами `postgres:16-alpine`, `redis:7-alpine`, `qdrant/qdrant:latest`
+  - Credentials выровнены с `.env`: `nova_user:nova_pass@localhost:5432/nova_db`
+  - Именованные volumes для персистентности данных
+  - Healthcheck-и для postgres и redis
+- Реализован `nova/db/models.py`: SQLAlchemy 2.0 ORM-модели
+  - `Task` — жизненный цикл задачи (UUID PK, status indexed, JSON output, timestamps)
+  - `TenderRecord` — история найденных тендеров (FK→tasks CASCADE)
+  - `AgentLog` — логи выполнения агентов (FK→tasks CASCADE)
+  - `JSON().with_variant(JSONB(), "postgresql")` — JSONB на PostgreSQL, JSON на SQLite для тестов
+  - `onupdate=_now` на `updated_at` для авто-обновления временной метки
+- Реализован `nova/db/database.py`: управление движком и сессиями
+  - `get_engine(url)` — публичная фабрика с авто-настройкой для SQLite
+  - `get_session(eng)` — контекст-менеджер с явным rollback при исключениях
+  - `get_db()` — FastAPI dependency с авто-commit/rollback
+  - Ленивые синглтоны — импорт settings откладывается до первого вызова
+- Инициализирован Alembic: `alembic init migrations`
+  - `migrations/env.py` читает DATABASE_URL из settings (с fallback через os.environ)
+  - `compare_type=True` для корректного autogenerate типов колонок
+  - Импорт всех моделей через `from nova.db.models import Base`
+- Создана первая миграция `e0f0d7fe3562_init.py`
+  - Создаёт `tasks`, `tender_records`, `agent_logs` с корректными FK и индексами
+  - `downgrade()` удаляет таблицы в обратном порядке зависимостей
+  - Верифицирована в offline-режиме: `alembic upgrade head --sql` генерирует корректный DDL
+- Создан `tests/unit/test_db.py`: 15 unit-тестов (TDD подход)
+  - SQLite in-memory — без зависимости от живого PostgreSQL
+  - TestModelsExist, TestTaskCRUD, TestTenderRecordCRUD, TestAgentLogCRUD, TestDatabaseHelpers
+
+**Проверка:**
+```
+✅ python -m pytest tests/unit/test_db.py -v  →  15 passed
+✅ python -m pytest tests/unit/ -v  →  44 passed (29 старых + 15 новых)
+✅ python -c "from nova.db.models import Base; print(list(Base.metadata.tables.keys()))"
+   → ['tasks', 'tender_records', 'agent_logs']
+✅ DATABASE_URL=... alembic upgrade head --sql  →  корректный PostgreSQL DDL
+⚠️  alembic upgrade head (применение к БД) — требует Docker/PostgreSQL, выполнить при наличии
+```
+
+**Следующий шаг:** Шаг 1.5 — Инфраструктура Redis и скелет основного графа
