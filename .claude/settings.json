@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(git add nova/integrations/goszakup/models.py)",
+      "Bash(git commit -m \"fix\\(models\\): use Literal type for TenderScore.recommendation\")",
+      "Bash(pip install \"beautifulsoup4>=4.12.0,<5.0.0\" \"lxml>=5.0.0,<6.0.0\" -q)",
+      "Bash(pip install \"beautifulsoup4>=4.12.0,<5.0.0\" -q)",
+      "Bash(python -c \"from bs4 import BeautifulSoup; print\\(''BS4 OK''\\)\")",
+      "Bash(python -m pytest tests/unit/ -v)",
+      "Bash(docker compose -f /Users/nnurkass/Nura/Nova/docker-compose.yml config --quiet)",
+      "Bash(echo \"exit_code: $?\")",
+      "Bash(git add docker-compose.yml)",
+      "Bash(git commit -m \"fix\\(infra\\): align postgres credentials with DATABASE_URL from .env\")",
+      "Bash(python -m pytest tests/unit/test_db.py -v)",
+      "Bash(python -c \"from nova.db.models import Base, Task, TenderRecord, AgentLog; print\\(''Import OK''\\)\")"
+    ]
+  }
+}

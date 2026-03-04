@@ -1,13 +1,39 @@
-"""
-Pydantic data models for ABC Smetnie resheniya integration.
+"""Pydantic data models for ABC Smetnie resheniya integration."""
+from __future__ import annotations
+from typing import Optional
+from pydantic import BaseModel
 
-Models:
-- ABCWork: work item from resource statement
-- ABCMaterial: material entry
-- ResourceStatement: full resource statement document
-- EstimatePosition: position in estimate
 
-Implemented in Step 1.3.
-"""
+class ABCWork(BaseModel):
+    code: str
+    name: str
+    unit: str
+    quantity: float
+    price: Optional[float] = None
 
-# TODO: Step 1.3.3 — implement Pydantic models for ABC
+
+class ABCMaterial(BaseModel):
+    code: str
+    name: str
+    unit: str
+    quantity: float
+    price: Optional[float] = None
+
+
+class ResourceStatement(BaseModel):
+    tender_id: Optional[int] = None
+    works: list[ABCWork] = []
+    materials: list[ABCMaterial] = []
+    total_works_cost: Optional[float] = None
+    total_materials_cost: Optional[float] = None
+
+
+class EstimatePosition(BaseModel):
+    position_number: int
+    code: str
+    name: str
+    unit: str
+    quantity: float
+    unit_price: Optional[float] = None
+    total_price: Optional[float] = None
+    is_work: bool

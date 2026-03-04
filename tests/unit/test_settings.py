@@ -16,7 +16,6 @@ from nova.config.logging import setup_logging
 
 MINIMAL_ENV = {
     "ANTHROPIC_API_KEY": "sk-ant-test",
-    "GOSZAKUP_TOKEN": "goszakup-test",
     "DATABASE_URL": "postgresql://user:pass@localhost:5432/testdb",
 }
 
@@ -45,12 +44,13 @@ class TestSettings:
         s = make_settings(monkeypatch)
         assert isinstance(s.anthropic_api_key, SecretStr)
         assert s.anthropic_api_key.get_secret_value() == "sk-ant-test"
-        assert isinstance(s.goszakup_token, SecretStr)
         assert s.database_url == "postgresql://user:pass@localhost:5432/testdb"
 
     def test_defaults(self, monkeypatch):
         s = make_settings(monkeypatch)
-        assert s.goszakup_graphql_url == "https://ows.goszakup.gov.kz/v3/graphql"
+        assert s.goszakup_base_url == "https://goszakup.gov.kz"
+        assert s.goszakup_request_delay == 1.5
+        assert s.goszakup_timeout == 30
         assert s.redis_url == "redis://localhost:6379/0"
         assert s.langsmith_api_key is None
         assert s.langsmith_project == "nova-construction-ai"

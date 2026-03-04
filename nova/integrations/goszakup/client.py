@@ -1,10 +1,10 @@
 """
-Goszakup.gov.kz GraphQL API client.
+Goszakup.gov.kz web scraper client.
 
-Handles authentication, query execution, pagination, and rate limiting
-for the v3 GraphQL endpoint.
+Handles HTTP requests, HTML parsing, pagination, and rate limiting
+for the public portal (no authentication required).
 
 Implemented in Step 2.1.
 """
 
-# TODO: Step 2.1 — implement GraphQL client with httpx
+# TODO: Step 2.1 — implement scraper with httpx + BeautifulSoup

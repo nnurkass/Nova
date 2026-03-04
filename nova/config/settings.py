@@ -21,9 +21,10 @@ class Settings(BaseSettings):
     # --- Anthropic LLM ---
     anthropic_api_key: SecretStr
 
-    # --- Goszakup.gov.kz API ---
-    goszakup_token: SecretStr
-    goszakup_graphql_url: str = "https://ows.goszakup.gov.kz/v3/graphql"
+    # --- Goszakup.gov.kz Scraping ---
+    goszakup_base_url: str = "https://goszakup.gov.kz"
+    goszakup_request_delay: float = 1.5  # seconds between requests (anti-ban)
+    goszakup_timeout: int = 30
 
     # --- PostgreSQL ---
     database_url: str
