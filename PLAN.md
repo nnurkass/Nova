@@ -159,25 +159,25 @@ python -c "from graph.main_graph import build_graph; g = build_graph(); print('G
 
 -----
 
-## Шаг 2.1 — GraphQL клиент goszakup.gov.kz
+## Шаг 2.1 — Web-скрейпер goszakup.gov.kz
 
 ### Описание
 
-Создать полноценный клиент для работы с официальным GraphQL API портала госзакупок Казахстана.
+Создать парсер публичного портала госзакупок Казахстана. Авторизация не требуется — данные открыты.
 
 ### Подшаги:
 
-- **2.1.1** — Создать `integrations/goszakup/client.py` — async HTTP клиент на `httpx`: инициализация с токеном, метод `execute_query(query, variables)`, обработка ошибок (401, 429, 500), логирование запросов
-- **2.1.2** — Создать `integrations/goszakup/queries.py` — все GraphQL запросы: `SEARCH_ANNOUNCEMENTS` (поиск объявлений по фильтрам), `GET_ANNOUNCEMENT_DETAIL` (детали конкретного тендера), `GET_LOTS` (лоты тендера), `GET_CONTRACTS` (история договоров заказчика)
-- **2.1.3** — Реализовать метод `search_tenders(region, work_type, budget_min, budget_max, deadline_from)` — поиск с параметрами, возвращает список `Tender` моделей
-- **2.1.4** — Реализовать метод `get_tender_details(tender_id)` — полная информация о тендере включая ТЗ и документацию
+- **2.1.1** — Создать `integrations/goszakup/client.py` — async HTTP клиент на `httpx`: сессия с User-Agent, задержка `settings.goszakup_request_delay` между запросами, таймаут `settings.goszakup_timeout`, логирование запросов
+- **2.1.2** — Создать `integrations/goszakup/queries.py` — URL-шаблоны и CSS-селекторы: `SEARCH_URL` (страница поиска с параметрами), `DETAIL_URL` (страница тендера), селекторы для таблицы результатов и полей детальной страницы
+- **2.1.3** — Реализовать метод `search_tenders(keyword, region_id, budget_min, budget_max, deadline_from)` — парсит страницу поиска через BeautifulSoup, возвращает список `Tender` моделей
+- **2.1.4** — Реализовать метод `get_tender_details(tender_url)` — парсит страницу тендера: название, бюджет, дедлайн, организатор, ссылки на документы
 - **2.1.5** — Реализовать retry-логику: 3 попытки с экспоненциальным backoff (1s, 3s, 9s), кэширование результатов в Redis (TTL 30 минут)
-- **2.1.6** — Написать тест `tests/integration/test_goszakup_client.py` — тест с реальным API (использовать тестовый токен), mock-версия для CI
+- **2.1.6** — Написать тест `tests/integration/test_goszakup_scraper.py` — fixture из сохранённого HTML (файлы в `tests/fixtures/`), mock httpx для CI без сетевых запросов
 
 ### Проверка:
 
 ```bash
-python -c "from integrations.goszakup.client import GoszakupClient; c = GoszakupClient(); print(c.search_tenders(region='Алматы', limit=3))"
+python -c "from nova.integrations.goszakup.client import GoszakupScraper; import asyncio; c = GoszakupScraper(); print(asyncio.run(c.search_tenders(keyword='строительство', limit=3)))"
 ```
 
 -----
@@ -193,7 +193,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 - **2.2.1** — Создать `agents/level3/goszakup_tool.py` — LangChain `@tool` функция `goszakup_search`: принимает параметры поиска, вызывает клиент, возвращает отформатированный список тендеров
 - **2.2.2** — Создать алгоритм скоринга тендера `score_tender(tender)` в `agents/level3/tender_scorer.py`: критерии — бюджет (30%), срок подачи (20%), регион (20%), тип закупки (15%), история заказчика (15%)
 - **2.2.3** — Реализовать `@tool` функцию `analyze_tender(tender_id)` — детальный анализ конкретного тендера: оценка рисков, анализ ТЗ, вычисление итогового скора
-- **2.2.4** — Реализовать `@tool` функцию `download_tender_docs(tender_id, save_path)` — скачивание прикреплённых файлов (PDF, DOCX, XLSX) в локальную папку
+- **2.2.4** — Реализовать `@tool` функцию `download_tender_docs(tender_url, save_path)` — скачивание прикреплённых файлов (PDF, DOCX, XLSX) по прямым ссылкам из страницы тендера
 - **2.2.5** — Написать тест `tests/unit/test_tender_scorer.py` — проверка алгоритма скоринга на 5 разных типах тендеров (высокий, средний, низкий приоритет)
 
 -----
@@ -386,7 +386,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 
 - **4.3.1** — Создать `graph/error_handlers.py` — централизованная обработка ошибок: `handle_api_error`, `handle_agent_error`, `handle_validation_error` с логированием и формированием сообщений для пользователя
 - **4.3.2** — Добавить retry-логику в граф: при ошибке агента → до 2 повторных попыток → при третьей неудаче → эскалация COO → уведомление пользователя
-- **4.3.3** — Реализовать graceful degradation: если goszakup.gov.kz недоступен → использовать кэш Redis (если есть) → иначе вернуть сообщение об ошибке пользователю
+- **4.3.3** — Реализовать graceful degradation: если goszakup.gov.kz недоступен или вернул не-200 → использовать кэш Redis (если есть) → иначе вернуть сообщение об ошибке пользователю
 - **4.3.4** — Добавить timeout для каждого агента: Закупщик 120s, ПТО 180s, Снабженец 60s — при превышении timeout → ошибка с подробным описанием что пошло не так
 - **4.3.5** — Написать тест `tests/unit/test_error_handling.py` — симуляция ошибок API, таймаутов, невалидных данных, проверка корректности обработки каждого случая
 
@@ -476,7 +476,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 - **5.3.1** — Аудит текущего покрытия: `pytest --cov=. --cov-report=html`, изучить отчёт, выявить непокрытые критические пути
 - **5.3.2** — Дописать недостающие unit-тесты: все tools, все модели данных, валидаторы, роутеры графа
 - **5.3.3** — Дописать интеграционные тесты: полный пайплайн с реальной БД, Redis; тесты API эндпоинтов; тесты WebSocket
-- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, XML из АВС, mock ответы goszakup API, тестовые задачи разной сложности
+- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, XML из АВС, sample HTML страниц goszakup.gov.kz, тестовые задачи разной сложности
 - **5.3.5** — Настроить GitHub Actions `/.github/workflows/tests.yml` — автоматический запуск тестов на каждый push в main и PR
 
 -----

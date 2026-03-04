@@ -95,7 +95,7 @@ graph LR
 |LLM                |Claude Sonnet 4.6      |—     |
 |LLM Framework      |LangChain              |0.3+  |
 |Мониторинг         |LangSmith              |—     |
-|API тендеров       |goszakup.gov.kz GraphQL|v3    |
+|Парсинг тендеров   |goszakup.gov.kz (httpx + BS4)|—|
 |Бэкенд             |FastAPI                |0.115+|
 |БД                 |PostgreSQL             |16+   |
 |Кэш/Очереди        |Redis                  |7+    |
@@ -131,19 +131,12 @@ cp .env.example .env
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
-GOSZAKUP_TOKEN=your_token_here
 DATABASE_URL=postgresql://user:pass@localhost:5432/construction_ai
 REDIS_URL=redis://localhost:6379
 LANGSMITH_API_KEY=your_key_here
 ```
 
-### 3. Получение токена goszakup.gov.kz
-
-1. Зайдите на `goszakup.gov.kz` под ЭЦП организации
-1. Перейдите: Профиль → Настройки → API токен
-1. Скопируйте токен в `.env`
-
-### 4. Запуск инфраструктуры
+### 3. Запуск инфраструктуры
 
 ```bash
 # Docker (рекомендуется)
@@ -193,7 +186,7 @@ construction_ai/
 │   │       └── prompts.py
 │   │
 │   └── level3/                 # Tools (инструменты)
-│       ├── goszakup_tool.py    # GraphQL клиент
+│       ├── goszakup_tool.py    # Web scraper goszakup.gov.kz
 │       ├── abc_tool.py         # Интеграция с АВС
 │       ├── pdf_parser.py       # Парсинг документов
 │       ├── stock_tool.py       # Склад
@@ -207,8 +200,8 @@ construction_ai/
 │
 ├── integrations/
 │   ├── goszakup/
-│   │   ├── client.py           # GraphQL клиент goszakup
-│   │   ├── queries.py          # GraphQL запросы
+│   │   ├── client.py           # HTTP scraper (httpx + BeautifulSoup)
+│   │   ├── queries.py          # URL-шаблоны и CSS-селекторы
 │   │   └── models.py           # Pydantic модели
 │   └── abc/
 │       ├── reader.py           # Чтение XML АВС
@@ -267,25 +260,7 @@ coo = create_supervisor(
 
 ### 🔍 Государственный Закупщик (Уровень 2)
 
-Интегрируется с `goszakup.gov.kz` через официальный GraphQL API v3.
-
-**Пример запроса:**
-
-```graphql
-query FindTenders($filter: AnnouncementFilter) {
-  Announcement(filter: $filter, limit: 20) {
-    id
-    nameRu
-    totalSum
-    endDate
-    customerNameRu
-    lots {
-      nameRu
-      amount
-    }
-  }
-}
-```
+Парсит публичный портал `goszakup.gov.kz` через httpx + BeautifulSoup. Авторизация не требуется — данные тендеров открыты.
 
 ### 📐 ПТО Агент (Уровень 2)
 
@@ -309,18 +284,16 @@ def abc_xml_reader(file_path: str) -> dict:
 
 ## Интеграции
 
-### goszakup.gov.kz GraphQL API
+### goszakup.gov.kz (Web Scraping)
 
-```bash
-# Документация API
-https://ows.goszakup.gov.kz/help/v3/schema/
+Используется публичный портал без авторизации:
 
-# Эндпоинт
-POST https://ows.goszakup.gov.kz/v3/graphql
-Authorization: Bearer {YOUR_TOKEN}
+```
+GET https://goszakup.gov.kz/ru/search/lots?...  ← поиск тендеров
+GET https://goszakup.gov.kz/ru/announce/{id}    ← страница тендера
 ```
 
-**Доступные данные:** объявления о закупках, реестр договоров, реестр поставщиков, планы закупок.
+**Доступные данные:** объявления о закупках, лоты, документация тендера, сведения об организаторе.
 
 ### АВС Сметные решения
 
@@ -343,9 +316,9 @@ Authorization: Bearer {YOUR_TOKEN}
 # === LLM ===
 ANTHROPIC_API_KEY=sk-ant-...
 
-# === Госзакупки КЗ ===
-GOSZAKUP_TOKEN=your_api_token
-GOSZAKUP_GRAPHQL_URL=https://ows.goszakup.gov.kz/v3/graphql
+# === Госзакупки КЗ (парсинг, токен не нужен) ===
+GOSZAKUP_BASE_URL=https://goszakup.gov.kz
+GOSZAKUP_REQUEST_DELAY=1.5
 
 # === База данных ===
 DATABASE_URL=postgresql://user:password@localhost:5432/construction_ai

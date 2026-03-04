@@ -1,4 +1,4 @@
-"""Pydantic data models for goszakup.gov.kz API responses."""
+"""Pydantic data models for goszakup.gov.kz scraped data."""
 from __future__ import annotations
 from typing import Literal, Optional
 from datetime import datetime
