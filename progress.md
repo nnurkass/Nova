@@ -1,7 +1,7 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-03 (Шаг 1.4)
-**Ветка:** claude/configure-project-settings-1zQKY
+**Последнее обновление:** 2026-03-04 (Шаг 1.5)
+**Ветка:** claude/step-1-5-redis-graph
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
 
@@ -13,7 +13,7 @@
 - [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
 - [x] Шаг 1.3 — SharedState и модели данных (2026-03-03)
 - [x] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic) (2026-03-03)
-- [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
+- [x] Шаг 1.5 — Инфраструктура Redis и скелет основного графа (2026-03-04)
 
 ## ЭТАП 2 — Интеграции и инструменты
 
@@ -176,3 +176,40 @@
 ```
 
 **Следующий шаг:** Шаг 1.5 — Инфраструктура Redis и скелет основного графа
+
+---
+
+### 2026-03-04 — Шаг 1.5
+
+**Выполнено:**
+- Реализован `nova/config/redis.py`: Redis-клиент с graceful degradation
+  - `get_redis_client()` — lazy-синглтон через `redis.Redis.from_url`
+  - `check_connection()` — ping с перехватом `RedisError`
+  - `get_cache(key)` / `set_cache(key, value, ttl=1800)` / `delete_cache(key)` — JSON-сериализация
+  - Все ошибки логируются, возвращают `None`/`False` без crash
+- Обновлён `nova/config/__init__.py`: re-export всех 4 Redis-функций
+- Реализованы функции маршрутизации в `nova/graph/routers.py`:
+  - `route_after_coo(state)` → `"procurement"` или `"end"` при ошибках
+  - `route_after_procurement(state)` → `"pto"` если selected_tender не None, иначе `"end"`
+  - `should_continue(state)` / `is_complete(state)` — предикаты состояния пайплайна
+  - Подключение к `add_conditional_edges` — в шаге 4.2
+- Реализован скелет `nova/graph/main_graph.py`:
+  - `build_graph(checkpointer=None)` — `StateGraph(ConstructionState)` с 4 нодами-заглушками
+  - Последовательные рёбра: coo → procurement → pto → supply → END
+  - Ноды-заглушки обновляют `current_agent`; реальные агенты заменяются в шагах 3.x / 4.2
+- Создан `tests/unit/test_redis.py`: 7 unit-тестов (все mock, без живого Redis)
+- Создан `tests/unit/test_routers.py`: 8 unit-тестов
+- Создан `tests/e2e/test_graph_smoke.py`: 3 smoke-теста (без LLM и DB)
+
+**Проверка:**
+```
+✅ python -m pytest tests/unit/test_redis.py -v   →  7 passed
+✅ python -m pytest tests/unit/test_routers.py -v  →  8 passed
+✅ python -m pytest tests/e2e/test_graph_smoke.py -v  →  3 passed
+✅ python -m pytest tests/ -v  →  62 passed
+✅ python -c "from nova.graph.main_graph import build_graph; g = build_graph(); print('Graph OK')"  →  Graph OK
+✅ from nova.config.redis import get_cache, set_cache, delete_cache, check_connection  →  OK
+✅ from nova.graph.routers import route_after_coo, route_after_procurement  →  OK
+```
+
+**Следующий шаг:** Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
