@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-06 (Шаг 1.5)
+**Последнее обновление:** 2026-03-06 (Шаг 2.1)
 **Ветка:** main
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -17,7 +17,7 @@
 
 ## ЭТАП 2 — Интеграции и инструменты
 
-- [ ] Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
+- [x] Шаг 2.1 — Веб-парсер goszakup.gov.kz (httpx + BeautifulSoup) (2026-03-06)
 - [ ] Шаг 2.2 — Инструменты поиска и оценки тендеров
 - [ ] Шаг 2.3 — Парсер документов (PDF/DOCX)
 - [ ] Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
@@ -201,4 +201,50 @@
 ⚠️  При Python 3.14 остаётся внешнее предупреждение `langchain_core` о Pydantic v1 compatibility, но проверки проходят успешно
 ```
 
-**Следующий шаг:** Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
+**Следующий шаг:** Шаг 2.1 — Веб-парсер goszakup.gov.kz (httpx + BeautifulSoup)
+
+---
+
+### 2026-03-06 — Шаг 2.1
+
+**Выполнено:**
+- Удалён старый GraphQL-клиент `nova/integrations/goszakup/client.py` и запросы `queries.py`; переход завершён на публичный HTML scraper
+- Обновлены настройки `goszakup` в `nova/config/settings.py` и `.env.example`
+  - `goszakup_base_url` по умолчанию `https://goszakup.gov.kz`
+  - `goszakup_user_agent` по умолчанию `NovaTenderScraper/0.1`
+- Реализован `nova/integrations/goszakup/scraper.py`
+  - async-клиент на `httpx.AsyncClient` с lazy инициализацией и безопасным импортом
+  - публичные методы `search_tenders(...)` и `get_tender_details(...)`
+  - retry/backoff для `429`, `5xx`, timeout/connect errors: `1s`, `3s`, `9s`
+  - graceful degradation без живого Redis: кэш best-effort, ошибки кэша не роняют scraper
+  - кеширование raw HTML и parsed payload в Redis с TTL `1800`
+- Расширены модели в `nova/integrations/goszakup/models.py`
+  - добавлен `TenderDocument`
+  - `Tender` поддерживает `detail_url`, `status_name_ru`, `purchase_type_name_ru`, `technical_specification`, `documents`
+  - `TenderSearchFilter` поддерживает публичный `region`
+- Реализован `nova/integrations/goszakup/parsers.py`
+  - pure-парсеры для fixtures и живой разметки портала
+  - поддержка поиска через карточки и через реальную таблицу `#search-result`
+  - поддержка detail-страницы через `data-field`, `form-group` и `table th/td`
+- Созданы fixtures `tests/fixtures/goszakup/search_results.html` и `tests/fixtures/goszakup/tender_detail.html`
+- Создан `tests/integration/test_goszakup_scraper.py`
+  - fixture-driven parsing
+  - cache hit/miss
+  - retry `429 -> 200` и `500 -> 500 -> 200`
+  - terminal `403`
+  - работа без Redis
+  - opt-in live smoke по `RUN_LIVE_GOSZAKUP_TESTS=1`
+- Обновлены `tests/unit/test_state.py`, `tests/unit/test_settings.py`, `tests/conftest.py`
+- Удалён устаревший `tests/integration/test_goszakup_client.py`
+
+**Проверка:**
+```
+✅ ./venv/bin/python -m pytest tests/ -v --tb=short  →  95 passed, 1 skipped
+✅ ./venv/bin/python -c "import asyncio; from nova.integrations.goszakup.scraper import GoszakupScraper; print(asyncio.run(GoszakupScraper().search_tenders(region='Алматы', limit=3)))"
+   →  returned 3 Tender objects from live portal page
+✅ ./venv/bin/python -c "from nova.integrations.goszakup.scraper import *; print('Import OK')"  →  Import OK
+⚠️  При отсутствии локального Redis scraper логирует cache warnings, но продолжает работать и проходит проверки
+⚠️  Live smoke в automated suite остаётся opt-in и по умолчанию пропускается
+```
+
+**Следующий шаг:** Шаг 2.2 — Инструменты поиска и оценки тендеров

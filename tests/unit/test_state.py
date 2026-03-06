@@ -7,22 +7,20 @@ from datetime import datetime, timezone
 class TestGoszakupModels:
     def test_tender_document_creation(self):
         from nova.integrations.goszakup.models import TenderDocument
-        document = TenderDocument(id=5, file_path="/docs/spec.pdf", original_name="spec.pdf")
+        document = TenderDocument(
+            id=5,
+            name="spec.pdf",
+            url="https://goszakup.gov.kz/storage/docs/spec.pdf",
+            category="specification",
+        )
         assert document.id == 5
-        assert document.url is None
-
-    def test_tender_contract_defaults(self):
-        from nova.integrations.goszakup.models import TenderContract
-        contract = TenderContract(id=10, contract_number="DOG-1")
-        assert contract.contract_number == "DOG-1"
-        assert contract.documents == []
+        assert document.category == "specification"
 
     def test_tender_lot_creation(self):
         from nova.integrations.goszakup.models import TenderLot
         lot = TenderLot(id=1, lot_number=1, name_ru="Лот 1")
         assert lot.id == 1
         assert lot.amount is None
-        assert lot.documents == []
 
     def test_tender_creation(self):
         from nova.integrations.goszakup.models import Tender
@@ -40,8 +38,7 @@ class TestGoszakupModels:
         assert tender.lots == []
         assert tender.total_sum is None
         assert tender.documents == []
-        assert tender.contracts == []
-        assert tender.source_url is None
+        assert tender.detail_url is None
 
     def test_tender_lots_default_is_not_shared(self):
         from nova.integrations.goszakup.models import Tender, TenderLot
@@ -90,11 +87,17 @@ class TestGoszakupModels:
             organizer_bin="123456789012",
             organizer_name_ru="АО Тест",
         )
-        first.documents.append(TenderDocument(id=1, file_path="/docs/a.pdf"))
+        first.documents.append(
+            TenderDocument(
+                id=1,
+                name="spec.pdf",
+                url="https://goszakup.gov.kz/storage/docs/spec.pdf",
+            )
+        )
         assert second.documents == []
 
     def test_tender_supports_detail_fields(self):
-        from nova.integrations.goszakup.models import Tender, TenderContract, TenderDocument
+        from nova.integrations.goszakup.models import Tender, TenderDocument
         tender = Tender(
             id=100,
             number="АНО-2026-001",
@@ -105,13 +108,18 @@ class TestGoszakupModels:
             organizer_bin="123456789012",
             organizer_name_ru="АО Тест",
             technical_specification="Техническое задание",
-            source_url="https://goszakup.gov.kz/ru/announce/index/100",
-            documents=[TenderDocument(id=1, original_name="spec.pdf")],
-            contracts=[TenderContract(id=2, contract_number="DOG-2")],
+            detail_url="https://goszakup.gov.kz/ru/announce/index/100",
+            documents=[
+                TenderDocument(
+                    id=1,
+                    name="spec.pdf",
+                    url="https://goszakup.gov.kz/storage/docs/spec.pdf",
+                )
+            ],
         )
         assert tender.technical_specification == "Техническое задание"
-        assert tender.documents[0].original_name == "spec.pdf"
-        assert tender.contracts[0].contract_number == "DOG-2"
+        assert tender.documents[0].name == "spec.pdf"
+        assert tender.detail_url == "https://goszakup.gov.kz/ru/announce/index/100"
 
     def test_tender_search_filter_defaults(self):
         from nova.integrations.goszakup.models import TenderSearchFilter

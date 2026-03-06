@@ -37,6 +37,13 @@ def parse_search_results(html: str, *, base_url: str | None = None) -> list[Tend
         tender = _parse_search_card(node, base_url=base_url)
         if tender is not None:
             tenders.append(tender)
+    if tenders:
+        return tenders
+
+    for row in soup.select("#search-result tbody tr"):
+        tender = _parse_search_table_row(row, base_url=base_url)
+        if tender is not None:
+            tenders.append(tender)
     return tenders
 
 
@@ -49,12 +56,14 @@ def parse_tender_detail(
     """Parse a public tender detail page into a single tender model."""
     soup = BeautifulSoup(html, "html.parser")
     root = soup.select_one("[data-role='tender-detail']") or soup
+    labels = _extract_label_values(root)
 
     parsed_id = tender_id or _to_int(
         _first_non_empty(
             _attr(root, "data-tender-id"),
             _text(root.select_one("[data-field='id']")),
             _text(root.select_one("#tender-id")),
+            labels.get("номер объявления"),
         )
     )
     if parsed_id is None:
@@ -63,19 +72,24 @@ def parse_tender_detail(
     number = _first_non_empty(
         _text(root.select_one("[data-field='number']")),
         _text(root.select_one(".tender-number")),
+        labels.get("номер объявления"),
     )
     name_ru = _first_non_empty(
         _text(root.select_one("[data-field='name_ru']")),
         _text(root.select_one("h1")),
         _text(root.select_one(".tender-title")),
+        labels.get("наименование объявления"),
     )
+    organizer_raw = _first_non_empty(_text(root.select_one("[data-field='organizer_name_ru']")), labels.get("организатор"))
+    organizer_bin, organizer_name_from_label = _split_bin_and_name(organizer_raw)
     status_id = _to_int(_text(root.select_one("[data-field='status_id']"))) or 0
     purchase_type_id = _to_int(_text(root.select_one("[data-field='trd_buy_type_id']"))) or 0
     organizer_id = _to_int(_text(root.select_one("[data-field='organizer_id']"))) or 0
-    organizer_bin = _first_non_empty(_text(root.select_one("[data-field='organizer_bin']")), "")
+    organizer_bin = _first_non_empty(_text(root.select_one("[data-field='organizer_bin']")), organizer_bin, "")
     organizer_name = _first_non_empty(
         _text(root.select_one("[data-field='organizer_name_ru']")),
         _text(root.select_one(".organizer-name")),
+        organizer_name_from_label,
         "",
     )
 
@@ -92,19 +106,46 @@ def parse_tender_detail(
         organizer_id=organizer_id,
         organizer_bin=organizer_bin,
         organizer_name_ru=organizer_name,
-        publish_date=_parse_datetime(_text(root.select_one("[data-field='publish_date']"))),
-        start_date=_parse_datetime(_text(root.select_one("[data-field='start_date']"))),
-        end_date=_parse_datetime(_text(root.select_one("[data-field='end_date']"))),
-        total_sum=_parse_float(_text(root.select_one("[data-field='total_sum']"))),
+        publish_date=_parse_datetime(
+            _first_non_empty(
+                _text(root.select_one("[data-field='publish_date']")),
+                labels.get("дата публикации объявления"),
+            )
+        ),
+        start_date=_parse_datetime(
+            _first_non_empty(
+                _text(root.select_one("[data-field='start_date']")),
+                labels.get("срок начала приема заявок"),
+            )
+        ),
+        end_date=_parse_datetime(
+            _first_non_empty(
+                _text(root.select_one("[data-field='end_date']")),
+                labels.get("срок окончания приема заявок"),
+            )
+        ),
+        total_sum=_parse_float(
+            _first_non_empty(
+                _text(root.select_one("[data-field='total_sum']")),
+                labels.get("сумма закупки"),
+            )
+        ),
         customer_bin=_text(root.select_one("[data-field='customer_bin']")),
-        customer_name_ru=_text(root.select_one("[data-field='customer_name_ru']")),
+        customer_name_ru=_first_non_empty(_text(root.select_one("[data-field='customer_name_ru']")), labels.get("заказчик")),
         ref_region_id=_to_int(_text(root.select_one("[data-field='ref_region_id']"))),
         detail_url=_resolve_url(
             base_url,
             _first_non_empty(_attr(root, "data-detail-url"), _attr(root.select_one("link[rel='canonical']"), "href")),
         ),
-        status_name_ru=_text(root.select_one("[data-field='status_name_ru']")),
-        purchase_type_name_ru=_text(root.select_one("[data-field='purchase_type_name_ru']")),
+        status_name_ru=_first_non_empty(
+            _text(root.select_one("[data-field='status_name_ru']")),
+            labels.get("статус объявления"),
+        ),
+        purchase_type_name_ru=_first_non_empty(
+            _text(root.select_one("[data-field='purchase_type_name_ru']")),
+            labels.get("способ проведения закупки"),
+            labels.get("тип закупки"),
+        ),
         technical_specification=_normalize_text(_text(root.select_one("[data-field='technical_specification']"))),
         documents=parse_documents(root, base_url=base_url),
         lots=parse_lots(root),
@@ -194,6 +235,42 @@ def _parse_search_card(node: Tag, *, base_url: str | None = None) -> Tender | No
     )
 
 
+def _parse_search_table_row(row: Tag, *, base_url: str | None = None) -> Tender | None:
+    cells = row.find_all("td", recursive=False)
+    if len(cells) < 7:
+        return None
+
+    link = cells[1].select_one("a[href]")
+    detail_url = _resolve_url(base_url, _attr(link, "href"))
+    number = _first_non_empty(_text(cells[0].select_one("strong")), _text(cells[0]))
+    name_ru = _first_non_empty(_text(link), _text(cells[1]))
+    tender_id = _to_int(_attr(link, "href")) or _to_int(number)
+    organizer_bin, organizer_name = _split_bin_and_name(_strip_labeled_prefix(_text(cells[1].select_one("small")), "Организатор:"))
+
+    if tender_id is None or not number or not name_ru:
+        return None
+
+    publish_date = _parse_datetime(_text(cells[3]))
+    end_date = _parse_datetime(_text(cells[4]))
+    return Tender(
+        id=tender_id,
+        number=number,
+        name_ru=name_ru,
+        status_id=0,
+        trd_buy_type_id=0,
+        organizer_id=0,
+        organizer_bin=organizer_bin or "",
+        organizer_name_ru=organizer_name or "",
+        publish_date=publish_date,
+        start_date=publish_date,
+        end_date=end_date,
+        total_sum=_parse_float(_text(cells[5])),
+        detail_url=detail_url,
+        status_name_ru=_text(cells[6]),
+        purchase_type_name_ru=_text(cells[2]),
+    )
+
+
 def _find_all_first_match(node: Tag | BeautifulSoup, selectors: Iterable[str]) -> list[Tag]:
     for selector in selectors:
         matches = node.select(selector)
@@ -222,6 +299,15 @@ def _normalize_text(value: str | None) -> str | None:
         return None
     normalized = " ".join(value.split())
     return normalized or None
+
+
+def _strip_labeled_prefix(value: str | None, prefix: str) -> str | None:
+    normalized = _normalize_text(value)
+    if normalized is None:
+        return None
+    if normalized.startswith(prefix):
+        return normalized[len(prefix) :].strip()
+    return normalized
 
 
 def _first_non_empty(*values: str | None) -> str | None:
@@ -270,6 +356,36 @@ def _parse_datetime(value: str | None) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _extract_label_values(root: Tag | BeautifulSoup) -> dict[str, str]:
+    values: dict[str, str] = {}
+
+    for group in root.select(".form-group"):
+        label = _normalize_text(_text(group.select_one("label")))
+        if label is None:
+            continue
+        value = _attr(group.select_one("input[value]"), "value") or _text(group.select_one(".form-control"))
+        if value:
+            values[label.lower()] = value
+
+    for row in root.select("table tr"):
+        header = _normalize_text(_text(row.find("th")))
+        value = _normalize_text(_text(row.find("td")))
+        if header and value:
+            values[header.lower()] = value
+
+    return values
+
+
+def _split_bin_and_name(value: str | None) -> tuple[str | None, str | None]:
+    normalized = _normalize_text(value)
+    if normalized is None:
+        return None, None
+    parts = normalized.split(" ", 1)
+    if parts and parts[0].isdigit() and len(parts[0]) >= 8:
+        return parts[0], parts[1] if len(parts) > 1 else None
+    return None, normalized
 
 
 def _resolve_url(base_url: str | None, value: str | None) -> str | None:
