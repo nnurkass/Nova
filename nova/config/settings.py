@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     # --- Anthropic LLM ---
     anthropic_api_key: SecretStr
 
-    # --- Goszakup.gov.kz API ---
-    goszakup_token: SecretStr
-    goszakup_graphql_url: str = "https://ows.goszakup.gov.kz/v3/graphql"
+    # --- Goszakup.gov.kz scraping ---
+    goszakup_base_url: str = "https://goszakup.gov.kz"
+    goszakup_user_agent: str = "NovaTenderScraper/0.1"
 
     # --- PostgreSQL ---
     database_url: str
