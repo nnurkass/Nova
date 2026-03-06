@@ -7,8 +7,10 @@ import pytest
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
+from nova import statuses
+from nova.db import database as db_module
 from nova.db.models import Base, Task, TenderRecord, AgentLog
-from nova.db.database import get_engine, get_session
+from nova.db.database import get_engine, get_session, reset_db_singletons
 
 
 @pytest.fixture(scope="module")
@@ -50,6 +52,12 @@ class TestModelsExist:
         assert {"id", "task_id", "agent_name", "status", "input_json", "output_json",
                 "started_at", "finished_at", "error_message"}.issubset(cols)
 
+    def test_status_constraints_exist(self, engine):
+        task_constraints = {constraint["name"] for constraint in inspect(engine).get_check_constraints("tasks")}
+        agent_constraints = {constraint["name"] for constraint in inspect(engine).get_check_constraints("agent_logs")}
+        assert "ck_tasks_status_valid" in task_constraints
+        assert "ck_agent_logs_status_valid" in agent_constraints
+
 
 class TestTaskCRUD:
     def test_create_task(self, session):
@@ -77,6 +85,10 @@ class TestTaskCRUD:
         session.add(task)
         session.flush()
         assert session.get(Task, task.id).output_json == {"result": "ok"}
+
+    def test_task_rejects_invalid_status(self):
+        with pytest.raises(ValueError):
+            Task(status="queued", input_text="тест")
 
 
 class TestTenderRecordCRUD:
@@ -138,6 +150,14 @@ class TestAgentLogCRUD:
         assert fetched.status == "error"
         assert fetched.error_message == "Timeout after 180s"
 
+    def test_agent_log_rejects_invalid_status(self, session):
+        task = Task(status="running", input_text="тест")
+        session.add(task)
+        session.flush()
+
+        with pytest.raises(ValueError):
+            AgentLog(task_id=task.id, agent_name="pto", status="failed")
+
 
 class TestDatabaseHelpers:
     def test_get_engine_returns_engine(self):
@@ -154,3 +174,21 @@ class TestDatabaseHelpers:
             assert isinstance(s, Session)
             s.execute(text("SELECT 1"))
         eng.dispose()
+
+    def test_engine_cache_is_keyed_by_database_url(self, monkeypatch):
+        class FakeSettings:
+            def __init__(self, database_url: str):
+                self.database_url = database_url
+
+        reset_db_singletons()
+        monkeypatch.setattr(db_module, "get_settings", lambda: FakeSettings("sqlite:///:memory:"))
+        first = db_module._get_app_engine()
+
+        monkeypatch.setattr(db_module, "get_settings", lambda: FakeSettings("sqlite:///tmp.db"))
+        second = db_module._get_app_engine()
+
+        assert first is not second
+        reset_db_singletons()
+
+    def test_shared_task_status_enum_is_stable(self):
+        assert statuses.TaskStatusEnum.PENDING.value == "pending"

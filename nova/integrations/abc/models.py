@@ -1,7 +1,7 @@
 """Pydantic data models for ABC Smetnie resheniya integration."""
 from __future__ import annotations
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ABCWork(BaseModel):
@@ -22,8 +22,8 @@ class ABCMaterial(BaseModel):
 
 class ResourceStatement(BaseModel):
     tender_id: Optional[int] = None
-    works: list[ABCWork] = []
-    materials: list[ABCMaterial] = []
+    works: list[ABCWork] = Field(default_factory=list)
+    materials: list[ABCMaterial] = Field(default_factory=list)
     total_works_cost: Optional[float] = None
     total_materials_cost: Optional[float] = None
 

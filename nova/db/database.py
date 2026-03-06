@@ -8,12 +8,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from nova.config.settings import get_settings
+
 
 def get_engine(url: str, **kwargs) -> Engine:
     """Create an Engine for the given URL. SQLite gets check_same_thread=False."""
-    connect_args: dict = {}
+    connect_args: dict = dict(kwargs.pop("connect_args", {}))
     if url.startswith("sqlite"):
-        connect_args["check_same_thread"] = False
+        connect_args.setdefault("check_same_thread", False)
     return create_engine(url, connect_args=connect_args, **kwargs)
 
 
@@ -34,23 +36,34 @@ def get_session(eng: Engine) -> Generator[Session, None, None]:
 # Module-level lazy singletons — used by FastAPI routes and Alembic
 # ---------------------------------------------------------------------------
 
-_engine: Engine | None = None
-_SessionLocal: sessionmaker | None = None
+_engines: dict[str, Engine] = {}
+_session_factories: dict[str, sessionmaker[Session]] = {}
 
 
 def _get_app_engine() -> Engine:
-    global _engine
-    if _engine is None:
-        from nova.config.settings import settings
-        _engine = get_engine(settings.database_url)
-    return _engine
+    database_url = get_settings().database_url
+    engine = _engines.get(database_url)
+    if engine is None:
+        engine = get_engine(database_url)
+        _engines[database_url] = engine
+    return engine
 
 
-def _get_session_factory() -> sessionmaker:
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=_get_app_engine(), expire_on_commit=False)
-    return _SessionLocal
+def _get_session_factory() -> sessionmaker[Session]:
+    database_url = get_settings().database_url
+    factory = _session_factories.get(database_url)
+    if factory is None:
+        factory = sessionmaker(bind=_get_app_engine(), expire_on_commit=False)
+        _session_factories[database_url] = factory
+    return factory
+
+
+def reset_db_singletons() -> None:
+    """Dispose cached engines and clear cached session factories."""
+    for engine in _engines.values():
+        engine.dispose()
+    _engines.clear()
+    _session_factories.clear()
 
 
 def get_db() -> Generator[Session, None, None]:

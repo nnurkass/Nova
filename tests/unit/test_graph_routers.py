@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from nova.graph.routers import (
     ROUTE_COO,
+    ROUTE_COMPLETE,
     ROUTE_END,
     ROUTE_PROCUREMENT,
     ROUTE_PTO,
@@ -52,6 +53,10 @@ class TestRouteAfterCoo:
         state = make_state(current_agent="unknown")
         assert route_after_coo(state) == ROUTE_END
 
+    def test_ends_when_agent_points_back_to_coo(self):
+        state = make_state(current_agent=ROUTE_COO)
+        assert route_after_coo(state) == ROUTE_END
+
 
 class TestRouteAfterProcurement:
     def test_routes_to_pto_when_tender_selected(self):
@@ -91,11 +96,16 @@ class TestShouldContinue:
 
 
 class TestIsComplete:
-    def test_ends_when_supply_outputs_are_ready(self):
+    def test_ends_when_supply_marks_completion(self):
         state = make_state(
+            current_agent=ROUTE_COMPLETE,
             stock_check={"cement": {"in_stock": 10}},
-            purchase_orders=[{"item": "cement", "quantity": 5}],
+            purchase_orders=[],
         )
+        assert is_complete(state) == ROUTE_END
+
+    def test_ends_when_supply_completion_flag_is_present(self):
+        state = make_state(metadata={"supply_completed": True})
         assert is_complete(state) == ROUTE_END
 
     def test_returns_to_coo_when_outputs_are_missing(self):

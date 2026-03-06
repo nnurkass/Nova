@@ -1,19 +1,26 @@
 """
 Centralized configuration via Pydantic BaseSettings.
 
-Settings class reads all configuration from environment variables
-(or .env file). Provides a single `settings` singleton for the entire app.
-
-Implemented in Step 1.2.
+Settings are loaded lazily so imports do not depend on environment readiness.
+The default .env path is resolved relative to the project root, not the cwd.
 """
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=DEFAULT_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
@@ -53,4 +60,27 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
 
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return the cached application settings instance."""
+    return Settings()
+
+
+def reset_settings_cache() -> None:
+    """Clear the cached settings instance."""
+    get_settings.cache_clear()
+
+
+def __getattr__(name: str) -> Any:
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "DEFAULT_ENV_FILE",
+    "Settings",
+    "get_settings",
+    "reset_settings_cache",
+    "settings",
+]

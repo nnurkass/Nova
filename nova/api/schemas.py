@@ -1,17 +1,11 @@
 """Pydantic schemas for FastAPI request/response models."""
 from __future__ import annotations
 from typing import Optional, Any
-from enum import Enum
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-
-class TaskStatusEnum(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+from nova.statuses import TaskStatusEnum
 
 
 class TaskRequest(BaseModel):
@@ -44,7 +38,7 @@ class AgentReport(BaseModel):
     selected_tender: Optional[dict[str, Any]] = None
     resource_statement: Optional[dict[str, Any]] = None
     stock_summary: Optional[dict[str, Any]] = None
-    purchase_orders: list[dict[str, Any]] = []
+    purchase_orders: list[dict[str, Any]] = Field(default_factory=list)
     total_cost_estimate: Optional[float] = None
     recommendations: str
     created_at: datetime
