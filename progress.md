@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-06 (Шаг 2.1)
+**Последнее обновление:** 2026-03-06 (Шаг 2.2)
 **Ветка:** main
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -18,7 +18,7 @@
 ## ЭТАП 2 — Интеграции и инструменты
 
 - [x] Шаг 2.1 — Веб-парсер goszakup.gov.kz (httpx + BeautifulSoup) (2026-03-06)
-- [ ] Шаг 2.2 — Инструменты поиска и оценки тендеров
+- [✅] Шаг 2.2 — Инструменты поиска и оценки тендеров
 - [ ] Шаг 2.3 — Парсер документов (PDF/DOCX)
 - [ ] Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
 - [ ] Шаг 2.5 — Инструменты склада и заявок (заглушки MVP)
@@ -248,3 +248,41 @@
 ```
 
 **Следующий шаг:** Шаг 2.2 — Инструменты поиска и оценки тендеров
+
+---
+
+### 2026-03-06 — Шаг 2.2
+
+**Выполнено:**
+- Реализован `nova/agents/level3/tender_scorer.py`
+  - добавлен `TenderScoringContext`
+  - реализован детерминированный `score_tender(tender, context=None) -> TenderScore`
+  - веса зафиксированы по плану: бюджет `30`, срок `20`, регион `20`, тип закупки `15`, история `15`
+  - рекомендации: `HIGH >= 75`, `MEDIUM >= 45`, иначе `LOW`
+- Реализован `nova/agents/level3/goszakup_tool.py`
+  - `goszakup_search` как LangChain `StructuredTool` с `args_schema`, JSON-ответом, summary и `score_preview`
+  - `analyze_tender` как LangChain `StructuredTool` с `score_breakdown`, `risk_flags`, `technical_specification_excerpt`
+  - `download_tender_docs` как LangChain `StructuredTool` с сохранением файлов в локальную папку и partial-failure reporting
+  - sync/async wrappers построены поверх единого async scraper-клиента
+- Расширен `nova/integrations/goszakup/scraper.py`
+  - добавлен публичный метод `download_document(url)` для бинарной загрузки вложений
+  - бинарная загрузка переиспользует текущие headers, timeout и retry/backoff политику scraper
+- Обновлён `nova/agents/level3/__init__.py`
+  - экспортированы `goszakup_search`, `analyze_tender`, `download_tender_docs`, `TenderScoringContext`, `score_tender`
+- Созданы и расширены тесты
+  - `tests/unit/test_tender_scorer.py` — 5 сценариев скоринга
+  - `tests/unit/test_goszakup_tool.py` — поиск, анализ, скачивание, пустой список документов, частичный отказ
+
+**Проверка:**
+```
+✅ ./venv/bin/python -m pytest tests/unit/test_tender_scorer.py -v  →  5 passed
+✅ ./venv/bin/python -m pytest tests/unit/test_goszakup_tool.py -v  →  5 passed
+✅ ./venv/bin/python -m pytest tests/ -v --tb=short  →  105 passed, 1 skipped
+✅ ./venv/bin/python -c "import json; from unittest.mock import AsyncMock, patch; from nova.agents.level3.goszakup_tool import goszakup_search; from nova.integrations.goszakup.models import Tender; tender=Tender(id=1, number='T-1', name_ru='Test tender', status_id=1, trd_buy_type_id=2, organizer_id=1, organizer_bin='123456789012', organizer_name_ru='Test Org'); patcher=patch('nova.agents.level3.goszakup_tool.GoszakupScraper.search_tenders', AsyncMock(return_value=[tender])); patcher.start(); payload=json.loads(goszakup_search.invoke({'region':'Алматы','budget_max':1000000,'limit':1})); patcher.stop(); print(payload['summary']['returned'], payload['tenders'][0]['id'])"
+   →  1 1
+✅ ./venv/bin/python -c "from nova.agents.level3.goszakup_tool import *; print('Import OK')"  →  Import OK
+⚠️  На Python 3.14 сохраняется внешнее предупреждение `langchain_core` о Pydantic v1 compatibility
+⚠️  `pytest-asyncio` также выдаёт deprecation warnings для policy API Python 3.14, но проверки проходят успешно
+```
+
+**Следующий шаг:** Шаг 2.3 — Парсер документов (PDF/DOCX)
