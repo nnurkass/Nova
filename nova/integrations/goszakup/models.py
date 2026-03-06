@@ -1,4 +1,4 @@
-"""Pydantic data models for goszakup.gov.kz API responses."""
+"""Pydantic data models for parsed goszakup.gov.kz tender data."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,40 +7,22 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-class TenderDocument(BaseModel):
-    id: int
-    file_path: Optional[str] = None
-    original_name: Optional[str] = None
-    name_ru: Optional[str] = None
-    name_kz: Optional[str] = None
-    url: Optional[str] = None
-
-
-class TenderContract(BaseModel):
-    id: int
-    trd_buy_id: Optional[int] = None
-    announcement_number: Optional[str] = None
-    contract_number: Optional[str] = None
-    status_id: Optional[int] = None
-    supplier_biin: Optional[str] = None
-    sign_date: Optional[datetime] = None
-    created_at: Optional[datetime] = None
-    amount: Optional[float] = None
-    documents: list[TenderDocument] = Field(default_factory=list)
-
-
 class TenderLot(BaseModel):
     id: int
     lot_number: int
     name_ru: str
     name_kz: Optional[str] = None
-    description_ru: Optional[str] = None
-    description_kz: Optional[str] = None
     amount: Optional[float] = None
     count: Optional[float] = None
     unit: Optional[str] = None
-    trd_buy_id: Optional[int] = None
-    documents: list[TenderDocument] = Field(default_factory=list)
+
+
+class TenderDocument(BaseModel):
+    id: int
+    name: str
+    url: str
+    category: Optional[str] = None
+    published_at: Optional[datetime] = None
 
 
 class Tender(BaseModel):
@@ -60,18 +42,16 @@ class Tender(BaseModel):
     customer_bin: Optional[str] = None
     customer_name_ru: Optional[str] = None
     ref_region_id: Optional[int] = None
+    detail_url: Optional[str] = None
     status_name_ru: Optional[str] = None
     purchase_type_name_ru: Optional[str] = None
-    description_ru: Optional[str] = None
-    description_kz: Optional[str] = None
     technical_specification: Optional[str] = None
-    source_url: Optional[str] = None
     documents: list[TenderDocument] = Field(default_factory=list)
-    contracts: list[TenderContract] = Field(default_factory=list)
     lots: list[TenderLot] = Field(default_factory=list)
 
 
 class TenderSearchFilter(BaseModel):
+    region: Optional[str] = None
     region_id: Optional[int] = None
     work_type: Optional[str] = None
     budget_min: Optional[float] = None
@@ -93,7 +73,6 @@ class TenderScore(BaseModel):
 
 __all__ = [
     "Tender",
-    "TenderContract",
     "TenderDocument",
     "TenderLot",
     "TenderScore",
