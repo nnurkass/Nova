@@ -48,7 +48,7 @@
 
 - **1.1.1** — Создать папку проекта `nova/` и инициализировать git репозиторий (`git init`, `.gitignore` для Python)
 - **1.1.2** — Создать полную файловую структуру согласно архитектуре: папки `agents/`, `graph/`, `integrations/`, `api/`, `db/`, `config/`, `tests/`, `docs/`
-- **1.1.3** — Создать `requirements.txt` с зависимостями: `langchain`, `langgraph`, `langgraph-supervisor`, `langchain-anthropic`, `fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `redis`, `psycopg2-binary`, `pydantic-settings`, `httpx`, `xmltodict`, `openpyxl`, `pypdf2`, `python-dotenv`, `pytest`, `langsmith`
+- **1.1.3** — Создать `requirements.txt` с зависимостями: `langchain`, `langgraph`, `langgraph-supervisor`, `langchain-anthropic`, `fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `redis`, `psycopg2-binary`, `pydantic-settings`, `httpx`, `beautifulsoup4`, `xmltodict`, `openpyxl`, `pypdf2`, `python-dotenv`, `pytest`, `langsmith`
 - **1.1.4** — Создать и активировать виртуальное окружение, установить все зависимости
 - **1.1.5** — Создать `.env.example` со всеми переменными окружения и `.env` с реальными значениями (добавить в `.gitignore`)
 - **1.1.6** — Создать `progress.md` — файл отслеживания прогресса разработки
@@ -71,7 +71,7 @@ python -c "import langgraph; import langchain_anthropic; print('OK')"
 
 - **1.2.1** — Создать `config/settings.py` — основной класс `Settings` с Pydantic BaseSettings, читает из `.env`: ключи API, URL баз данных, параметры агентов
 - **1.2.2** — Создать `config/logging.py` — настройка логирования: форматы, уровни, интеграция с LangSmith (трассировка агентов)
-- **1.2.3** — Создать `config/constants.py` — константы: лимиты токенов для каждого агента, таймауты, URL эндпоинтов goszakup, пути к папкам АВС
+- **1.2.3** — Создать `config/constants.py` — константы: лимиты токенов для каждого агента, таймауты, URL страниц goszakup, пути к папкам АВС
 - **1.2.4** — Добавить функцию валидации конфига при старте: проверка наличия всех обязательных переменных, вывод предупреждений если чего-то не хватает
 - **1.2.5** — Написать unit-тест `tests/unit/test_config.py` — проверка загрузки конфига, валидации типов
 
@@ -159,25 +159,25 @@ python -c "from graph.main_graph import build_graph; g = build_graph(); print('G
 
 -----
 
-## Шаг 2.1 — GraphQL клиент goszakup.gov.kz
+## Шаг 2.1 — Веб-парсер goszakup.gov.kz
 
 ### Описание
 
-Создать полноценный клиент для работы с официальным GraphQL API портала госзакупок Казахстана.
+Создать устойчивый веб-парсер для работы с публичными страницами портала госзакупок Казахстана.
 
 ### Подшаги:
 
-- **2.1.1** — Создать `integrations/goszakup/client.py` — async HTTP клиент на `httpx`: инициализация с токеном, метод `execute_query(query, variables)`, обработка ошибок (401, 429, 500), логирование запросов
-- **2.1.2** — Создать `integrations/goszakup/queries.py` — все GraphQL запросы: `SEARCH_ANNOUNCEMENTS` (поиск объявлений по фильтрам), `GET_ANNOUNCEMENT_DETAIL` (детали конкретного тендера), `GET_LOTS` (лоты тендера), `GET_CONTRACTS` (история договоров заказчика)
-- **2.1.3** — Реализовать метод `search_tenders(region, work_type, budget_min, budget_max, deadline_from)` — поиск с параметрами, возвращает список `Tender` моделей
-- **2.1.4** — Реализовать метод `get_tender_details(tender_id)` — полная информация о тендере включая ТЗ и документацию
-- **2.1.5** — Реализовать retry-логику: 3 попытки с экспоненциальным backoff (1s, 3s, 9s), кэширование результатов в Redis (TTL 30 минут)
-- **2.1.6** — Написать тест `tests/integration/test_goszakup_client.py` — тест с реальным API (использовать тестовый токен), mock-версия для CI
+- **2.1.1** — Создать `integrations/goszakup/scraper.py` — async HTTP клиент на `httpx`: заголовки, user-agent, получение HTML страниц поиска и карточек тендера, обработка ошибок (403, 429, 500), логирование запросов
+- **2.1.2** — Создать `integrations/goszakup/parsers.py` — HTML-парсеры на `BeautifulSoup`: разбор страницы списка тендеров, карточки объявления, лотов, блоков заказчика и ссылок на документы
+- **2.1.3** — Реализовать метод `search_tenders(region, work_type, budget_min, budget_max, deadline_from)` — поиск по страницам портала с параметрами, возвращает список `Tender` моделей
+- **2.1.4** — Реализовать метод `get_tender_details(tender_id)` — парсинг полной карточки тендера включая ТЗ, сроки, лоты и документацию
+- **2.1.5** — Реализовать retry-логику: 3 попытки с экспоненциальным backoff (1s, 3s, 9s), кэширование HTML и разобранных результатов в Redis (TTL 30 минут)
+- **2.1.6** — Написать тест `tests/integration/test_goszakup_scraper.py` — тест на сохранённых HTML fixtures и smoke-проверка парсинга реальной страницы без обязательной авторизации
 
 ### Проверка:
 
 ```bash
-python -c "from integrations.goszakup.client import GoszakupClient; c = GoszakupClient(); print(c.search_tenders(region='Алматы', limit=3))"
+python -c "from integrations.goszakup.scraper import GoszakupScraper; s = GoszakupScraper(); print(s.search_tenders(region='Алматы', limit=3))"
 ```
 
 -----
@@ -186,7 +186,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 
 ### Описание
 
-Создать инструменты-обёртки (LangChain Tools) поверх GraphQL клиента для использования агентом.
+Создать инструменты-обёртки (LangChain Tools) поверх веб-парсера для использования агентом.
 
 ### Подшаги:
 
@@ -401,7 +401,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 ### Подшаги:
 
 - **4.4.1** — Создать `tests/e2e/test_tender_pipeline.py` — e2e тест с реальным LLM и mock-данными: входная задача → полный прогон всех агентов → проверка финального отчёта
-- **4.4.2** — Запустить реальный прогон с реальным goszakup.gov.kz API и тестовым тендером — зафиксировать результат в `docs/test_run_report.md`
+- **4.4.2** — Запустить реальный прогон с реальными страницами goszakup.gov.kz и тестовым тендером — зафиксировать результат в `docs/test_run_report.md`
 - **4.4.3** — Замерить и зафиксировать: время выполнения полного пайплайна, количество вызовов LLM, стоимость API запросов (через LangSmith)
 - **4.4.4** — Выявить и устранить узкие места: что замедляет пайплайн, где лишние LLM-вызовы, где можно добавить кэш
 - **4.4.5** — Обновить `progress.md` с результатами e2e тестирования, зафиксировать метрики
@@ -443,7 +443,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 
 - **5.1.1** — Создать `api/main.py` — FastAPI приложение: lifespan manager (подключение к БД, Redis при старте), middleware (CORS, логирование запросов), подключение роутеров
 - **5.1.2** — Создать `api/routes/tasks.py` — эндпоинты: `POST /api/v1/tasks` (создать задачу → запустить граф асинхронно через Celery → вернуть task_id), `GET /api/v1/tasks/{task_id}` (статус и результат)
-- **5.1.3** — Создать `api/routes/health.py` — `GET /health` (проверка работоспособности всех сервисов: LLM, БД, Redis, goszakup API)
+- **5.1.3** — Создать `api/routes/health.py` — `GET /health` (проверка работоспособности всех сервисов: LLM, БД, Redis, goszakup scraper)
 - **5.1.4** — Настроить Celery воркер в `api/worker.py` — асинхронное выполнение графа в фоне, обновление статуса задачи в БД по мере выполнения
 - **5.1.5** — Написать тест `tests/integration/test_api.py` — тест всех эндпоинтов через `TestClient`, проверка схем запросов и ответов, коды статусов
 
@@ -476,7 +476,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 - **5.3.1** — Аудит текущего покрытия: `pytest --cov=. --cov-report=html`, изучить отчёт, выявить непокрытые критические пути
 - **5.3.2** — Дописать недостающие unit-тесты: все tools, все модели данных, валидаторы, роутеры графа
 - **5.3.3** — Дописать интеграционные тесты: полный пайплайн с реальной БД, Redis; тесты API эндпоинтов; тесты WebSocket
-- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, XML из АВС, mock ответы goszakup API, тестовые задачи разной сложности
+- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, XML из АВС, сохранённые HTML-страницы goszakup, тестовые задачи разной сложности
 - **5.3.5** — Настроить GitHub Actions `/.github/workflows/tests.yml` — автоматический запуск тестов на каждый push в main и PR
 
 -----
@@ -551,7 +551,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 - [⬜] Шаг 1.5 — Redis и базовый граф
 
 ## Этап 2 — Интеграции и инструменты
-- [⬜] Шаг 2.1 — GraphQL клиент goszakup.gov.kz
+- [⬜] Шаг 2.1 — Веб-парсер goszakup.gov.kz
 ...
 
 ## Заметки

@@ -95,7 +95,7 @@ graph LR
 |LLM                |Claude Sonnet 4.6      |—     |
 |LLM Framework      |LangChain              |0.3+  |
 |Мониторинг         |LangSmith              |—     |
-|API тендеров       |goszakup.gov.kz GraphQL|v3    |
+|Источник тендеров  |goszakup.gov.kz (HTML) |—     |
 |Бэкенд             |FastAPI                |0.115+|
 |БД                 |PostgreSQL             |16+   |
 |Кэш/Очереди        |Redis                  |7+    |
@@ -131,17 +131,18 @@ cp .env.example .env
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
-GOSZAKUP_TOKEN=your_token_here
+GOSZAKUP_BASE_URL=https://goszakup.gov.kz
+GOSZAKUP_USER_AGENT=NovaTenderScraper/0.1
 DATABASE_URL=postgresql://user:pass@localhost:5432/construction_ai
 REDIS_URL=redis://localhost:6379
 LANGSMITH_API_KEY=your_key_here
 ```
 
-### 3. Получение токена goszakup.gov.kz
+### 3. Доступ к goszakup.gov.kz
 
-1. Зайдите на `goszakup.gov.kz` под ЭЦП организации
-1. Перейдите: Профиль → Настройки → API токен
-1. Скопируйте токен в `.env`
+1. Убедитесь, что из вашей сети открывается `goszakup.gov.kz`
+1. Проверьте, что доступны страницы поиска закупок и карточки объявлений
+1. При необходимости задайте свой `GOSZAKUP_USER_AGENT` в `.env`
 
 ### 4. Запуск инфраструктуры
 
@@ -193,7 +194,7 @@ construction_ai/
 │   │       └── prompts.py
 │   │
 │   └── level3/                 # Tools (инструменты)
-│       ├── goszakup_tool.py    # GraphQL клиент
+│       ├── goszakup_tool.py    # LangChain tool поверх scraper
 │       ├── abc_tool.py         # Интеграция с АВС
 │       ├── pdf_parser.py       # Парсинг документов
 │       ├── stock_tool.py       # Склад
@@ -207,8 +208,8 @@ construction_ai/
 │
 ├── integrations/
 │   ├── goszakup/
-│   │   ├── client.py           # GraphQL клиент goszakup
-│   │   ├── queries.py          # GraphQL запросы
+│   │   ├── scraper.py          # Веб-скрейпер goszakup
+│   │   ├── parsers.py          # HTML-парсеры и селекторы
 │   │   └── models.py           # Pydantic модели
 │   └── abc/
 │       ├── reader.py           # Чтение XML АВС
@@ -267,24 +268,17 @@ coo = create_supervisor(
 
 ### 🔍 Государственный Закупщик (Уровень 2)
 
-Интегрируется с `goszakup.gov.kz` через официальный GraphQL API v3.
+Интегрируется с `goszakup.gov.kz` через веб-парсинг публичных страниц поиска и карточек тендеров.
 
-**Пример запроса:**
+**Пример вызова:**
 
-```graphql
-query FindTenders($filter: AnnouncementFilter) {
-  Announcement(filter: $filter, limit: 20) {
-    id
-    nameRu
-    totalSum
-    endDate
-    customerNameRu
-    lots {
-      nameRu
-      amount
-    }
-  }
-}
+```python
+results = scraper.search_tenders(
+    region="Алматы",
+    work_type="строительство",
+    budget_max=50_000_000,
+    limit=20,
+)
 ```
 
 ### 📐 ПТО Агент (Уровень 2)
@@ -309,18 +303,16 @@ def abc_xml_reader(file_path: str) -> dict:
 
 ## Интеграции
 
-### goszakup.gov.kz GraphQL API
+### goszakup.gov.kz (веб-парсинг)
 
-```bash
-# Документация API
-https://ows.goszakup.gov.kz/help/v3/schema/
+Парсинг строится на публичных HTML-страницах портала:
 
-# Эндпоинт
-POST https://ows.goszakup.gov.kz/v3/graphql
-Authorization: Bearer {YOUR_TOKEN}
+```text
+Страница поиска закупок -> список тендеров -> краткие карточки
+Карточка тендера -> сроки, заказчик, лоты, документы, описание
 ```
 
-**Доступные данные:** объявления о закупках, реестр договоров, реестр поставщиков, планы закупок.
+**Технический стек:** `httpx` для загрузки страниц, `BeautifulSoup` для разбора HTML, Redis для кэша результатов.
 
 ### АВС Сметные решения
 
@@ -344,8 +336,8 @@ Authorization: Bearer {YOUR_TOKEN}
 ANTHROPIC_API_KEY=sk-ant-...
 
 # === Госзакупки КЗ ===
-GOSZAKUP_TOKEN=your_api_token
-GOSZAKUP_GRAPHQL_URL=https://ows.goszakup.gov.kz/v3/graphql
+GOSZAKUP_BASE_URL=https://goszakup.gov.kz
+GOSZAKUP_USER_AGENT=NovaTenderScraper/0.1
 
 # === База данных ===
 DATABASE_URL=postgresql://user:password@localhost:5432/construction_ai
@@ -389,7 +381,7 @@ class AgentConfig(BaseSettings):
 ### ✅ v0.1 MVP (в разработке)
 
 - [x] Архитектура LangGraph Supervisor
-- [x] Государственный Закупщик + GraphQL goszakup.gov.kz
+- [x] Государственный Закупщик + парсинг goszakup.gov.kz
 - [x] ПТО Агент + парсинг документов + базовая интеграция АВС XML
 - [x] Снабженец + проверка склада + формирование заявок
 - [x] COO оркестратор
