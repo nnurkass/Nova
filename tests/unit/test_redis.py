@@ -53,10 +53,9 @@ class TestRedisHelpers:
 
         monkeypatch.setattr("redis.Redis.from_url", fake_from_url)
         monkeypatch.setattr("nova.config.redis._redis_client", None)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-        monkeypatch.setenv("GOSZAKUP_TOKEN", "goszakup-test")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/testdb")
-        monkeypatch.setenv("REDIS_URL", "redis://cache:6379/7")
+        from nova.config.settings import settings
+
+        monkeypatch.setattr(settings, "redis_url", "redis://cache:6379/7")
 
         first = get_redis_client()
         second = get_redis_client()
