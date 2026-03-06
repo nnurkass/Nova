@@ -1,31 +1,27 @@
-"""Goszakup.gov.kz GraphQL API client and data models."""
-from nova.integrations.goszakup.client import (
-    GoszakupClient,
-    GoszakupClientError,
-    GoszakupGraphQLError,
-    GoszakupRateLimitError,
-    GoszakupServerError,
-    GoszakupUnauthorizedError,
-)
+"""Goszakup.gov.kz scraper integration and data models."""
 from nova.integrations.goszakup.models import (
     Tender,
-    TenderContract,
-    TenderDocument,
     TenderLot,
     TenderScore,
     TenderSearchFilter,
 )
+from nova.integrations.goszakup.scraper import (
+    GoszakupForbiddenError,
+    GoszakupRateLimitError,
+    GoszakupScraper,
+    GoszakupScraperError,
+    GoszakupServerError,
+    GoszakupTransportError,
+)
 
 __all__ = [
-    "GoszakupClient",
-    "GoszakupClientError",
-    "GoszakupGraphQLError",
+    "GoszakupForbiddenError",
     "GoszakupRateLimitError",
+    "GoszakupScraper",
+    "GoszakupScraperError",
     "GoszakupServerError",
-    "GoszakupUnauthorizedError",
+    "GoszakupTransportError",
     "Tender",
-    "TenderContract",
-    "TenderDocument",
     "TenderLot",
     "TenderScore",
     "TenderSearchFilter",
