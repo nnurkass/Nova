@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -49,6 +52,13 @@ class TenderAnalysisToolInput(BaseModel):
         default=None,
         description="Reference timestamp for deadline scoring.",
     )
+
+
+class TenderDownloadToolInput(BaseModel):
+    """Input schema for `download_tender_docs`."""
+
+    tender_id: int = Field(..., gt=0, description="Tender identifier from goszakup.gov.kz.")
+    save_path: str = Field(..., min_length=1, description="Directory where tender documents will be saved.")
 
 
 def _create_scraper() -> GoszakupScraper:
@@ -205,6 +215,42 @@ def _build_risk_flags(
     return risk_flags
 
 
+def _sanitize_filename(value: str) -> str:
+    normalized = " ".join(value.split()).strip()
+    sanitized = re.sub(r"[^\w.-]+", "_", normalized, flags=re.UNICODE).strip("._")
+    return sanitized or "document"
+
+
+def _build_document_filename(document_name: str, document_url: str, *, index: int) -> str:
+    parsed_url = urlparse(document_url)
+    url_name = Path(unquote(parsed_url.path)).name
+    source_name = document_name.strip() or url_name or f"document_{index}"
+
+    source_path = Path(source_name)
+    suffix = source_path.suffix or Path(url_name).suffix
+    stem = source_path.stem if source_path.suffix else source_name
+    safe_stem = _sanitize_filename(stem)
+    safe_suffix = _sanitize_filename(suffix) if suffix else ""
+
+    if safe_suffix and not safe_suffix.startswith("."):
+        safe_suffix = f".{safe_suffix}"
+    return f"{safe_stem}{safe_suffix}"
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+
+    stem = candidate.stem
+    suffix = candidate.suffix
+    for index in range(2, 1_000):
+        next_candidate = directory / f"{stem}_{index}{suffix}"
+        if not next_candidate.exists():
+            return next_candidate
+    raise RuntimeError(f"Unable to allocate unique filename for {filename!r}")
+
+
 async def _goszakup_search_async(
     *,
     region: str | None = None,
@@ -312,6 +358,64 @@ def _analyze_tender_sync(**kwargs: Any) -> str:
     return _run_async(_analyze_tender_async(**kwargs))
 
 
+async def _download_tender_docs_async(*, tender_id: int, save_path: str) -> str:
+    root_dir = Path(save_path).expanduser().resolve()
+    tender_dir = root_dir / f"tender_{tender_id}"
+    tender_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        async with _create_scraper() as scraper:
+            tender = await scraper.get_tender_details(tender_id)
+            downloaded_files: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
+
+            for index, document in enumerate(tender.documents, start=1):
+                try:
+                    content = await scraper.download_document(document.url)
+                    filename = _build_document_filename(document.name, document.url, index=index)
+                    target_path = _unique_path(tender_dir, filename)
+                    target_path.write_bytes(content)
+                    downloaded_files.append(
+                        {
+                            "document_id": document.id,
+                            "name": document.name,
+                            "category": document.category,
+                            "path": str(target_path),
+                            "size_bytes": len(content),
+                            "url": document.url,
+                        }
+                    )
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "document_id": document.id,
+                            "name": document.name,
+                            "url": document.url,
+                            "error_type": exc.__class__.__name__,
+                            "error": str(exc),
+                        }
+                    )
+    except Exception as exc:  # pragma: no cover - covered by tool error contract tests later
+        return _tool_error("download_tender_docs", exc)
+
+    return _json_dumps(
+        {
+            "tool": "download_tender_docs",
+            "status": "ok",
+            "tender_id": tender_id,
+            "download_dir": str(tender_dir),
+            "document_count": len(tender.documents),
+            "downloaded_count": len(downloaded_files),
+            "files": downloaded_files,
+            "errors": errors,
+        }
+    )
+
+
+def _download_tender_docs_sync(**kwargs: Any) -> str:
+    return _run_async(_download_tender_docs_async(**kwargs))
+
+
 goszakup_search = StructuredTool.from_function(
     func=_goszakup_search_sync,
     coroutine=_goszakup_search_async,
@@ -336,9 +440,23 @@ analyze_tender = StructuredTool.from_function(
 )
 
 
+download_tender_docs = StructuredTool.from_function(
+    func=_download_tender_docs_sync,
+    coroutine=_download_tender_docs_async,
+    name="download_tender_docs",
+    description=(
+        "Download tender attachments from goszakup.gov.kz into a local directory and return "
+        "a JSON payload with saved file paths plus partial download errors."
+    ),
+    args_schema=TenderDownloadToolInput,
+)
+
+
 __all__ = [
     "TenderAnalysisToolInput",
+    "TenderDownloadToolInput",
     "TenderSearchToolInput",
     "analyze_tender",
+    "download_tender_docs",
     "goszakup_search",
 ]

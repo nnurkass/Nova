@@ -195,6 +195,10 @@ class GoszakupScraper:
         logger.info("Loaded goszakup tender %s detail from %s", tender_id, source)
         return detail
 
+    async def download_document(self, document_url: str) -> bytes:
+        """Download a tender attachment using the scraper retry policy."""
+        return await self._request_bytes(document_url)
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -212,6 +216,24 @@ class GoszakupScraper:
         *,
         params: dict[str, Any] | None = None,
     ) -> str:
+        response = await self._request(path, params=params)
+        return response.text
+
+    async def _request_bytes(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> bytes:
+        response = await self._request(path, params=params)
+        return response.content
+
+    async def _request(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> httpx.Response:
         client = await self._get_client()
         total_attempts = len(self._retry_delays) + 1
 
@@ -220,7 +242,7 @@ class GoszakupScraper:
             try:
                 response = await client.get(path, params=params)
                 self._raise_for_status(response)
-                return response.text
+                return response
             except GoszakupForbiddenError:
                 logger.warning("Goszakup denied access to %s on attempt %s", path, attempt)
                 raise
