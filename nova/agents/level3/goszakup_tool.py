@@ -1,9 +1,189 @@
-"""
-LangChain tool wrapper for goszakup.gov.kz GraphQL API.
+"""LangChain tools for goszakup.gov.kz search workflows."""
+from __future__ import annotations
 
-Provides tender search and retrieval as a callable tool for agents.
+import asyncio
+import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Any
 
-Implemented in Step 2.2.
-"""
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 
-# TODO: Step 2.2 — implement goszakup LangChain tool
+from nova.agents.level3.tender_scorer import TenderScoringContext, score_tender
+from nova.integrations.goszakup import GoszakupScraper, Tender, TenderScore
+
+
+class TenderSearchToolInput(BaseModel):
+    """Input schema for `goszakup_search`."""
+
+    region: str | None = Field(default=None, description="Tender region filter.")
+    work_type: str | None = Field(default=None, description="Search phrase or work type.")
+    budget_min: float | None = Field(default=None, ge=0, description="Minimum tender budget.")
+    budget_max: float | None = Field(default=None, ge=0, description="Maximum tender budget.")
+    deadline_from: datetime | None = Field(
+        default=None,
+        description="Lower bound for submission deadline in ISO-8601 format.",
+    )
+    limit: int = Field(default=10, ge=1, le=50, description="Maximum number of tenders to return.")
+    scoring_region_matched: bool | None = Field(
+        default=None,
+        description="Override for region matching in score preview.",
+    )
+    reference_datetime: datetime | None = Field(
+        default=None,
+        description="Reference timestamp for deadline scoring.",
+    )
+
+
+def _create_scraper() -> GoszakupScraper:
+    return GoszakupScraper()
+
+
+def _run_async(awaitable: Any) -> Any:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, awaitable)
+        return future.result()
+
+
+def _json_dumps(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _tool_error(tool_name: str, exc: Exception) -> str:
+    return _json_dumps(
+        {
+            "tool": tool_name,
+            "status": "error",
+            "error_type": exc.__class__.__name__,
+            "error": str(exc),
+        }
+    )
+
+
+def _build_scoring_context(
+    *,
+    budget_max: float | None,
+    region: str | None = None,
+    scoring_region_matched: bool | None = None,
+    reference_datetime: datetime | None = None,
+) -> TenderScoringContext:
+    region_matched = scoring_region_matched
+    if region_matched is None and region is not None:
+        region_matched = True
+
+    return TenderScoringContext(
+        budget_max=budget_max,
+        region_matched=region_matched,
+        reference_datetime=reference_datetime,
+    )
+
+
+def _serialize_score(score: TenderScore) -> dict[str, Any]:
+    return score.model_dump(mode="json")
+
+
+def _serialize_tender(tender: Tender, *, score: TenderScore | None = None) -> dict[str, Any]:
+    payload = {
+        "id": tender.id,
+        "number": tender.number,
+        "name_ru": tender.name_ru,
+        "status_name_ru": tender.status_name_ru,
+        "purchase_type_name_ru": tender.purchase_type_name_ru,
+        "organizer_name_ru": tender.organizer_name_ru,
+        "customer_name_ru": tender.customer_name_ru,
+        "total_sum": tender.total_sum,
+        "end_date": tender.end_date.isoformat() if tender.end_date else None,
+        "detail_url": tender.detail_url,
+    }
+    if score is not None:
+        payload["score_preview"] = _serialize_score(score)
+    return payload
+
+
+def _summarize_scores(scored_tenders: list[tuple[Tender, TenderScore]]) -> dict[str, Any]:
+    return {
+        "returned": len(scored_tenders),
+        "high_priority": sum(score.recommendation == "HIGH" for _, score in scored_tenders),
+        "medium_priority": sum(score.recommendation == "MEDIUM" for _, score in scored_tenders),
+        "low_priority": sum(score.recommendation == "LOW" for _, score in scored_tenders),
+        "top_score": max((score.total_score for _, score in scored_tenders), default=0.0),
+    }
+
+
+async def _goszakup_search_async(
+    *,
+    region: str | None = None,
+    work_type: str | None = None,
+    budget_min: float | None = None,
+    budget_max: float | None = None,
+    deadline_from: datetime | None = None,
+    limit: int = 10,
+    scoring_region_matched: bool | None = None,
+    reference_datetime: datetime | None = None,
+) -> str:
+    try:
+        async with _create_scraper() as scraper:
+            tenders = await scraper.search_tenders(
+                region=region,
+                work_type=work_type,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                deadline_from=deadline_from,
+                limit=limit,
+            )
+    except Exception as exc:  # pragma: no cover - covered by tool error contract tests later
+        return _tool_error("goszakup_search", exc)
+
+    context = _build_scoring_context(
+        budget_max=budget_max,
+        region=region,
+        scoring_region_matched=scoring_region_matched,
+        reference_datetime=reference_datetime,
+    )
+    scored_tenders = [(tender, score_tender(tender, context=context)) for tender in tenders]
+    scored_tenders.sort(key=lambda item: item[1].total_score, reverse=True)
+
+    return _json_dumps(
+        {
+            "tool": "goszakup_search",
+            "status": "ok",
+            "search_filters": {
+                "region": region,
+                "work_type": work_type,
+                "budget_min": budget_min,
+                "budget_max": budget_max,
+                "deadline_from": deadline_from.isoformat() if deadline_from else None,
+                "limit": limit,
+            },
+            "summary": _summarize_scores(scored_tenders),
+            "tenders": [
+                _serialize_tender(tender, score=score)
+                for tender, score in scored_tenders
+            ],
+        }
+    )
+
+
+def _goszakup_search_sync(**kwargs: Any) -> str:
+    return _run_async(_goszakup_search_async(**kwargs))
+
+
+goszakup_search = StructuredTool.from_function(
+    func=_goszakup_search_sync,
+    coroutine=_goszakup_search_async,
+    name="goszakup_search",
+    description=(
+        "Search goszakup.gov.kz tenders and return a JSON payload with tender fields, "
+        "summary counts, and deterministic score previews."
+    ),
+    args_schema=TenderSearchToolInput,
+)
+
+
+__all__ = ["TenderSearchToolInput", "goszakup_search"]
