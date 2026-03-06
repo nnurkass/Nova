@@ -1,7 +1,7 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-03 (Шаг 1.4)
-**Ветка:** claude/configure-project-settings-1zQKY
+**Последнее обновление:** 2026-03-06 (Шаг 1.5)
+**Ветка:** main
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
 
@@ -13,7 +13,7 @@
 - [x] Шаг 1.2 — Конфигурация и настройки (Pydantic BaseSettings) (2026-03-01)
 - [x] Шаг 1.3 — SharedState и модели данных (2026-03-03)
 - [x] Шаг 1.4 — База данных и миграции (PostgreSQL + Alembic) (2026-03-03)
-- [ ] Шаг 1.5 — Инфраструктура Redis и скелет основного графа
+- [x] Шаг 1.5 — Инфраструктура Redis и скелет основного графа (2026-03-06)
 
 ## ЭТАП 2 — Интеграции и инструменты
 
@@ -176,3 +176,29 @@
 ```
 
 **Следующий шаг:** Шаг 1.5 — Инфраструктура Redis и скелет основного графа
+
+---
+
+### 2026-03-06 — Шаг 1.5
+
+**Выполнено:**
+- Создан `nova/config/redis.py`: lazy Redis client, `check_redis_connection()`, JSON cache helpers `get_cache()`, `set_cache()`, `delete_cache()` с TTL по умолчанию 1800 секунд
+- Обновлён `nova/config/__init__.py`: lazy re-export `settings`, `setup_logging` и Redis helpers без побочных эффектов при импорте
+- Реализован `nova/graph/routers.py`: условные роутеры `route_after_coo`, `route_after_procurement`, `should_continue`, `is_complete` и стабильные route keys
+- Реализован `nova/graph/main_graph.py`: skeleton LangGraph с нодами-заглушками `coo`, `procurement`, `pto`, `supply`, условными переходами и `build_graph()`
+- Обновлён `nova/graph/__init__.py`: экспорт `build_graph`, `ConstructionState` и router helpers
+- Обновлён `tests/conftest.py`: тестовые env defaults и общая фикстура `initial_construction_state`
+- Созданы `tests/unit/test_redis.py`, `tests/unit/test_graph_routers.py`, `tests/e2e/test_graph_smoke.py`
+  - Redis unit-тесты покрывают singleton, cache hit/miss, TTL, delete и ошибку сериализации
+  - Router unit-тесты покрывают happy path, отсутствие тендера, ошибки и завершение графа
+  - Smoke e2e тест проверяет прохождение пути `coo -> procurement -> pto -> supply`
+
+**Проверка:**
+```
+✅ ./venv/bin/python -m pytest tests/ -v --tb=short  →  63 passed
+✅ ./venv/bin/python -c "from nova.graph.main_graph import build_graph; g = build_graph(); print('Graph OK')"  →  Graph OK
+✅ ./venv/bin/python -c "from nova.graph.main_graph import *; print('Import OK')"  →  Import OK
+⚠️  При Python 3.14 остаётся внешнее предупреждение `langchain_core` о Pydantic v1 compatibility, но проверки проходят успешно
+```
+
+**Следующий шаг:** Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
