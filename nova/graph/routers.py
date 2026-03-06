@@ -6,12 +6,12 @@ from nova.graph.state import ConstructionState
 
 ROUTE_END = "end"
 ROUTE_COO = "coo"
+ROUTE_COMPLETE = "complete"
 ROUTE_PROCUREMENT = "procurement"
 ROUTE_PTO = "pto"
 ROUTE_SUPPLY = "supply"
 
 _VALID_COO_ROUTES = {
-    ROUTE_COO,
     ROUTE_PROCUREMENT,
     ROUTE_PTO,
     ROUTE_SUPPLY,
@@ -51,6 +51,6 @@ def is_complete(state: ConstructionState) -> str:
     """Finish when supply produced the final artifacts; otherwise loop to COO."""
     if state["errors"]:
         return ROUTE_END
-    if state["stock_check"] and state["purchase_orders"]:
+    if state["current_agent"] == ROUTE_COMPLETE or state["metadata"].get("supply_completed"):
         return ROUTE_END
     return ROUTE_COO

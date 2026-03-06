@@ -10,6 +10,7 @@ def test_graph_smoke_runs_through_all_stub_nodes(initial_construction_state):
     result = graph.invoke(initial_construction_state)
 
     assert result["metadata"]["visited_nodes"] == ["coo", "procurement", "pto", "supply"]
+    assert result["metadata"]["supply_completed"] is True
     assert result["current_agent"] == "complete"
     assert result["selected_tender"] is not None
     assert result["work_list"]

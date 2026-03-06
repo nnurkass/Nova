@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from nova.graph.routers import (
     ROUTE_COO,
+    ROUTE_COMPLETE,
     ROUTE_END,
     ROUTE_PROCUREMENT,
     ROUTE_PTO,
@@ -95,6 +96,7 @@ def pto_node(state: ConstructionState) -> dict[str, Any]:
 def supply_node(state: ConstructionState) -> dict[str, Any]:
     """Generate stub stock-check and purchase order outputs."""
     metadata = _copy_metadata(state, ROUTE_SUPPLY)
+    metadata["supply_completed"] = True
     stock_check = dict(state["stock_check"]) or {
         "245-1234": {
             "name": "Арматура А500С",
@@ -115,7 +117,7 @@ def supply_node(state: ConstructionState) -> dict[str, Any]:
     return {
         "stock_check": stock_check,
         "purchase_orders": purchase_orders,
-        "current_agent": "complete",
+        "current_agent": ROUTE_COMPLETE,
         "metadata": metadata,
     }
 

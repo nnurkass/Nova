@@ -6,7 +6,10 @@ from typing import Any
 
 
 __all__ = [
+    "get_settings",
+    "reset_settings_cache",
     "settings",
+    "reset_redis_client",
     "setup_logging",
     "check_redis_connection",
     "delete_cache",
@@ -17,8 +20,8 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name == "settings":
-        return import_module("nova.config.settings").settings
+    if name in {"get_settings", "reset_settings_cache", "settings"}:
+        return getattr(import_module("nova.config.settings"), name)
     if name == "setup_logging":
         return import_module("nova.config.logging").setup_logging
     if name in {
@@ -26,6 +29,7 @@ def __getattr__(name: str) -> Any:
         "delete_cache",
         "get_cache",
         "get_redis_client",
+        "reset_redis_client",
         "set_cache",
     }:
         return getattr(import_module("nova.config.redis"), name)

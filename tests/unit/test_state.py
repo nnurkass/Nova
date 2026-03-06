@@ -27,6 +27,31 @@ class TestGoszakupModels:
         assert tender.lots == []
         assert tender.total_sum is None
 
+    def test_tender_lots_default_is_not_shared(self):
+        from nova.integrations.goszakup.models import Tender, TenderLot
+        first = Tender(
+            id=100,
+            number="АНО-2026-001",
+            name_ru="Строительство дороги",
+            status_id=1,
+            trd_buy_type_id=2,
+            organizer_id=10,
+            organizer_bin="123456789012",
+            organizer_name_ru="АО Тест",
+        )
+        second = Tender(
+            id=101,
+            number="АНО-2026-002",
+            name_ru="Строительство моста",
+            status_id=1,
+            trd_buy_type_id=2,
+            organizer_id=10,
+            organizer_bin="123456789012",
+            organizer_name_ru="АО Тест",
+        )
+        first.lots.append(TenderLot(id=1, lot_number=1, name_ru="Лот 1"))
+        assert second.lots == []
+
     def test_tender_search_filter_defaults(self):
         from nova.integrations.goszakup.models import TenderSearchFilter
         f = TenderSearchFilter()
@@ -69,6 +94,13 @@ class TestABCModels:
         assert stmt.works == []
         assert stmt.materials == []
         assert stmt.tender_id is None
+
+    def test_resource_statement_defaults_are_not_shared(self):
+        from nova.integrations.abc.models import ResourceStatement, ABCWork
+        first = ResourceStatement()
+        second = ResourceStatement()
+        first.works.append(ABCWork(code="1", name="Работа", unit="м3", quantity=1.0))
+        assert second.works == []
 
     def test_estimate_position_is_work_flag(self):
         from nova.integrations.abc.models import EstimatePosition
@@ -130,6 +162,25 @@ class TestAPISchemas:
         )
         assert report.purchase_orders == []
         assert report.selected_tender is None
+
+    def test_agent_report_purchase_orders_default_is_not_shared(self):
+        from uuid import UUID
+        from datetime import datetime, timezone
+        from nova.api.schemas import AgentReport
+        first = AgentReport(
+            task_id=UUID("12345678-1234-5678-1234-567812345678"),
+            task="тест",
+            recommendations="ok",
+            created_at=datetime.now(timezone.utc),
+        )
+        second = AgentReport(
+            task_id=UUID("87654321-4321-8765-4321-876543218765"),
+            task="тест",
+            recommendations="ok",
+            created_at=datetime.now(timezone.utc),
+        )
+        first.purchase_orders.append({"item": "cement"})
+        assert second.purchase_orders == []
 
 
 # ── 1.3.1  ConstructionState ──────────────────────────────────────────

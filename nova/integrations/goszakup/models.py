@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Literal, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TenderLot(BaseModel):
@@ -32,7 +32,7 @@ class Tender(BaseModel):
     customer_bin: Optional[str] = None
     customer_name_ru: Optional[str] = None
     ref_region_id: Optional[int] = None
-    lots: list[TenderLot] = []
+    lots: list[TenderLot] = Field(default_factory=list)
 
 
 class TenderSearchFilter(BaseModel):
