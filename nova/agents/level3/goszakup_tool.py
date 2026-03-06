@@ -36,6 +36,21 @@ class TenderSearchToolInput(BaseModel):
     )
 
 
+class TenderAnalysisToolInput(BaseModel):
+    """Input schema for `analyze_tender`."""
+
+    tender_id: int = Field(..., gt=0, description="Tender identifier from goszakup.gov.kz.")
+    budget_max: float | None = Field(default=None, ge=0, description="Preferred maximum budget.")
+    scoring_region_matched: bool | None = Field(
+        default=None,
+        description="Override for region matching in tender analysis.",
+    )
+    reference_datetime: datetime | None = Field(
+        default=None,
+        description="Reference timestamp for deadline scoring.",
+    )
+
+
 def _create_scraper() -> GoszakupScraper:
     return GoszakupScraper()
 
@@ -88,7 +103,13 @@ def _serialize_score(score: TenderScore) -> dict[str, Any]:
     return score.model_dump(mode="json")
 
 
-def _serialize_tender(tender: Tender, *, score: TenderScore | None = None) -> dict[str, Any]:
+def _serialize_tender(
+    tender: Tender,
+    *,
+    score: TenderScore | None = None,
+    include_documents: bool = False,
+    include_lots: bool = False,
+) -> dict[str, Any]:
     payload = {
         "id": tender.id,
         "number": tender.number,
@@ -101,6 +122,29 @@ def _serialize_tender(tender: Tender, *, score: TenderScore | None = None) -> di
         "end_date": tender.end_date.isoformat() if tender.end_date else None,
         "detail_url": tender.detail_url,
     }
+    if include_documents:
+        payload["documents"] = [
+            {
+                "id": document.id,
+                "name": document.name,
+                "url": document.url,
+                "category": document.category,
+                "published_at": document.published_at.isoformat() if document.published_at else None,
+            }
+            for document in tender.documents
+        ]
+    if include_lots:
+        payload["lots"] = [
+            {
+                "id": lot.id,
+                "lot_number": lot.lot_number,
+                "name_ru": lot.name_ru,
+                "amount": lot.amount,
+                "count": lot.count,
+                "unit": lot.unit,
+            }
+            for lot in tender.lots
+        ]
     if score is not None:
         payload["score_preview"] = _serialize_score(score)
     return payload
@@ -114,6 +158,51 @@ def _summarize_scores(scored_tenders: list[tuple[Tender, TenderScore]]) -> dict[
         "low_priority": sum(score.recommendation == "LOW" for _, score in scored_tenders),
         "top_score": max((score.total_score for _, score in scored_tenders), default=0.0),
     }
+
+
+def _excerpt_text(text: str | None, *, limit: int = 280) -> str:
+    if not text:
+        return ""
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 3].rstrip()}..."
+
+
+def _days_until_deadline(end_date: datetime | None, reference_datetime: datetime | None) -> float | None:
+    if end_date is None:
+        return None
+
+    reference = reference_datetime or datetime.now()
+    deadline = end_date
+    if deadline.tzinfo is not None:
+        deadline = deadline.astimezone().replace(tzinfo=None)
+    if reference.tzinfo is not None:
+        reference = reference.astimezone().replace(tzinfo=None)
+    return (deadline - reference).total_seconds() / 86_400
+
+
+def _build_risk_flags(
+    tender: Tender,
+    *,
+    score: TenderScore,
+    reference_datetime: datetime | None,
+) -> list[str]:
+    risk_flags: list[str] = []
+    if not tender.technical_specification:
+        risk_flags.append("missing_technical_specification")
+    if not tender.documents:
+        risk_flags.append("missing_documents")
+    days_until_deadline = _days_until_deadline(tender.end_date, reference_datetime)
+    if days_until_deadline is not None and days_until_deadline < 4:
+        risk_flags.append("short_submission_window")
+    if tender.total_sum is None:
+        risk_flags.append("budget_unknown")
+    if not tender.lots:
+        risk_flags.append("missing_lots")
+    if score.purchase_type_score <= 5:
+        risk_flags.append("weak_purchase_type")
+    return risk_flags
 
 
 async def _goszakup_search_async(
@@ -174,6 +263,55 @@ def _goszakup_search_sync(**kwargs: Any) -> str:
     return _run_async(_goszakup_search_async(**kwargs))
 
 
+async def _analyze_tender_async(
+    *,
+    tender_id: int,
+    budget_max: float | None = None,
+    scoring_region_matched: bool | None = None,
+    reference_datetime: datetime | None = None,
+) -> str:
+    try:
+        async with _create_scraper() as scraper:
+            tender = await scraper.get_tender_details(tender_id)
+    except Exception as exc:  # pragma: no cover - covered by tool error contract tests later
+        return _tool_error("analyze_tender", exc)
+
+    context = _build_scoring_context(
+        budget_max=budget_max,
+        scoring_region_matched=scoring_region_matched,
+        reference_datetime=reference_datetime,
+    )
+    score = score_tender(tender, context=context)
+    risk_flags = _build_risk_flags(
+        tender,
+        score=score,
+        reference_datetime=reference_datetime,
+    )
+
+    return _json_dumps(
+        {
+            "tool": "analyze_tender",
+            "status": "ok",
+            "tender": _serialize_tender(
+                tender,
+                score=score,
+                include_documents=True,
+                include_lots=True,
+            ),
+            "score_breakdown": _serialize_score(score),
+            "risk_flags": risk_flags,
+            "lot_count": len(tender.lots),
+            "document_count": len(tender.documents),
+            "technical_specification_excerpt": _excerpt_text(tender.technical_specification),
+            "recommendation": score.recommendation,
+        }
+    )
+
+
+def _analyze_tender_sync(**kwargs: Any) -> str:
+    return _run_async(_analyze_tender_async(**kwargs))
+
+
 goszakup_search = StructuredTool.from_function(
     func=_goszakup_search_sync,
     coroutine=_goszakup_search_async,
@@ -186,4 +324,21 @@ goszakup_search = StructuredTool.from_function(
 )
 
 
-__all__ = ["TenderSearchToolInput", "goszakup_search"]
+analyze_tender = StructuredTool.from_function(
+    func=_analyze_tender_sync,
+    coroutine=_analyze_tender_async,
+    name="analyze_tender",
+    description=(
+        "Load a single tender card from goszakup.gov.kz and return a JSON analysis with "
+        "score breakdown, rule-based risk flags, document counts, and recommendation."
+    ),
+    args_schema=TenderAnalysisToolInput,
+)
+
+
+__all__ = [
+    "TenderAnalysisToolInput",
+    "TenderSearchToolInput",
+    "analyze_tender",
+    "goszakup_search",
+]
