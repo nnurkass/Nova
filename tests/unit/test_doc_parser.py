@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
@@ -11,6 +12,7 @@ import pytest
 
 from nova.agents.level3.pdf_parser import (
     DocumentParseError,
+    extract_work_list,
     parse_docx,
     parse_document,
     parse_pdf,
@@ -187,3 +189,52 @@ def test_parse_document_unsupported_extension_raises(tmp_path: Path):
 
     with pytest.raises(DocumentParseError, match="Unsupported document type"):
         parse_document(sample)
+
+
+def test_extract_work_list_from_docx_table(tmp_path: Path):
+    sample = tmp_path / "work_scope.docx"
+    sample.write_bytes(
+        _build_docx(
+            paragraphs=[
+                "Technical specification",
+                "General civil works package for school extension.",
+            ],
+            table_rows=[
+                ["Code", "Name", "Unit", "Qty"],
+                ["W-01", "Earth works", "m3", "120"],
+                ["W-02", "Concrete pouring", "m3", "45"],
+                ["M-01", "Cement", "t", "25"],
+            ],
+        )
+    )
+
+    result = extract_work_list.invoke({"file_path": str(sample)})
+    payload = json.loads(result)
+
+    assert payload["tool"] == "extract_work_list"
+    assert payload["status"] == "ok"
+    assert payload["counts"]["work_items"] == 2
+    assert [item["code"] for item in payload["work_list"]] == ["W-01", "W-02"]
+    assert payload["source_sections"] == ["tables"]
+
+
+def test_extract_work_list_from_pdf_text_section(tmp_path: Path):
+    sample = tmp_path / "work_scope.pdf"
+    sample.write_bytes(
+        _build_single_page_pdf(
+            [
+                "Technical specification",
+                "General project description",
+                "Work scope",
+                "Earth works 120 m3",
+                "Concrete pouring 45 m3",
+            ]
+        )
+    )
+
+    result = extract_work_list.invoke({"file_path": str(sample)})
+    payload = json.loads(result)
+
+    assert payload["status"] == "ok"
+    assert payload["counts"]["work_items"] == 2
+    assert payload["source_sections"] == ["work_scope"]
