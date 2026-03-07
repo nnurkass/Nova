@@ -19,6 +19,11 @@ from nova.agents.level3.pdf_parser import (
     parse_pdf,
 )
 
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "documents"
+SCOPE_PDF = FIXTURES_DIR / "sample_tender_scope.pdf"
+SPEC_DOCX = FIXTURES_DIR / "sample_tender_spec.docx"
+MATERIALS_DOCX = FIXTURES_DIR / "sample_tender_materials.docx"
+
 
 def _escape_pdf_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
@@ -192,6 +197,22 @@ def test_parse_document_unsupported_extension_raises(tmp_path: Path):
         parse_document(sample)
 
 
+def test_parse_pdf_fixture_document():
+    payload = parse_pdf(SCOPE_PDF)
+
+    assert payload["document_type"] == "pdf"
+    assert payload["metadata"]["page_count"] == 1
+    assert payload["sections"]["work_scope"] == "Earth works 120 m3\nConcrete pouring 45 m3"
+
+
+def test_parse_docx_fixture_document():
+    payload = parse_docx(SPEC_DOCX)
+
+    assert payload["document_type"] == "docx"
+    assert payload["tables"][0]["headers"] == ["Code", "Name", "Unit", "Qty"]
+    assert len(payload["tables"][0]["rows"]) == 3
+
+
 def test_extract_work_list_from_docx_table(tmp_path: Path):
     sample = tmp_path / "work_scope.docx"
     sample.write_bytes(
@@ -241,6 +262,15 @@ def test_extract_work_list_from_pdf_text_section(tmp_path: Path):
     assert payload["source_sections"] == ["work_scope"]
 
 
+def test_extract_work_list_from_fixture_docx():
+    result = extract_work_list.invoke({"file_path": str(SPEC_DOCX)})
+    payload = json.loads(result)
+
+    assert payload["status"] == "ok"
+    assert payload["counts"]["work_items"] == 3
+    assert [item["code"] for item in payload["work_list"]] == ["W-01", "W-02", "W-03"]
+
+
 def test_extract_materials_from_docx_table(tmp_path: Path):
     sample = tmp_path / "materials.docx"
     sample.write_bytes(
@@ -286,3 +316,31 @@ def test_level3_exports_document_tools():
     assert MaterialExtractionToolInput.model_fields["file_path"].annotation is str
     assert callable(exported_parse_pdf)
     assert callable(exported_parse_docx)
+
+
+def test_extract_materials_from_fixture_docx():
+    result = extract_materials.invoke({"file_path": str(MATERIALS_DOCX)})
+    payload = json.loads(result)
+
+    assert payload["status"] == "ok"
+    assert payload["counts"]["material_items"] == 3
+    assert [item["code"] for item in payload["materials_list"]] == ["M-01", "M-02", "M-03"]
+
+
+def test_parse_pdf_with_broken_payload_raises(tmp_path: Path):
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"%PDF-1.4\nthis is not a valid pdf body\n")
+
+    with pytest.raises(DocumentParseError, match="Failed to parse PDF file"):
+        parse_pdf(broken)
+
+
+def test_extract_work_list_with_unsupported_extension_returns_error(tmp_path: Path):
+    unsupported = tmp_path / "notes.txt"
+    unsupported.write_text("only plain text", encoding="utf-8")
+
+    result = extract_work_list.invoke({"file_path": str(unsupported)})
+    payload = json.loads(result)
+
+    assert payload["status"] == "error"
+    assert payload["error_type"] == "DocumentParseError"

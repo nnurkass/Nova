@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-06 (Шаг 2.2)
+**Последнее обновление:** 2026-03-07 (Шаг 2.3)
 **Ветка:** main
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -19,7 +19,7 @@
 
 - [x] Шаг 2.1 — Веб-парсер goszakup.gov.kz (httpx + BeautifulSoup) (2026-03-06)
 - [✅] Шаг 2.2 — Инструменты поиска и оценки тендеров
-- [ ] Шаг 2.3 — Парсер документов (PDF/DOCX)
+- [✅] Шаг 2.3 — Парсер документов (PDF/DOCX)
 - [ ] Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
 - [ ] Шаг 2.5 — Инструменты склада и заявок (заглушки MVP)
 
@@ -286,3 +286,40 @@
 ```
 
 **Следующий шаг:** Шаг 2.3 — Парсер документов (PDF/DOCX)
+
+---
+
+### 2026-03-07 — Шаг 2.3
+
+**Выполнено:**
+- Реализован `nova/agents/level3/pdf_parser.py`
+  - `parse_pdf(file_path)` на `PyPDF2` с извлечением текста по страницам и секционированием
+  - `parse_docx(file_path)` с backend `python-docx` и fallback `xml-fallback` через zip/XML
+  - единый `parse_document(file_path)` dispatcher по расширению (`.pdf` / `.docx`)
+  - `StructuredTool` инструменты `extract_work_list` и `extract_materials` с `args_schema`, sync/async wrappers и JSON-контрактом ответов
+  - детерминированный extraction engine (таблицы + строки текста + ключевые слова) с нормализацией единиц измерения и дедупликацией
+- Обновлён `nova/agents/level3/__init__.py`
+  - экспортированы `parse_pdf`, `parse_docx`, `parse_document`, `extract_work_list`, `extract_materials`, `WorkExtractionToolInput`, `MaterialExtractionToolInput`
+- Добавлены fixture-документы `tests/fixtures/documents/`
+  - `sample_tender_scope.pdf`
+  - `sample_tender_spec.docx`
+  - `sample_tender_materials.docx`
+- Создан и расширен `tests/unit/test_doc_parser.py` (13 unit-тестов)
+  - parse PDF/DOCX (генерируемые и fixture-документы)
+  - извлечение работ/материалов через tools
+  - ошибки: битый PDF, неподдерживаемое расширение
+  - проверка экспортов `nova.agents.level3`
+- Обновлён `requirements.txt`
+  - добавлен `python-docx>=1.1.0,<2.0.0`
+
+**Проверка:**
+```
+✅ ./venv/bin/python -m pytest tests/ -v --tb=short  →  118 passed, 1 skipped
+✅ ./venv/bin/python -c "import json; from nova.agents.level3.pdf_parser import extract_work_list; p=json.loads(extract_work_list.invoke({'file_path':'tests/fixtures/documents/sample_tender_spec.docx'})); print(p['status'], len(p['work_list']))"
+   →  ok 3
+✅ ./venv/bin/python -c "from nova.agents.level3.pdf_parser import *; print('Import OK')"  →  Import OK
+⚠️  В среде отсутствует alias `python`, поэтому проверки запускались через `./venv/bin/python`
+⚠️  На Python 3.14 сохраняется внешнее предупреждение `langchain_core` о Pydantic v1 compatibility
+```
+
+**Следующий шаг:** Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
