@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
+
+from PyPDF2 import PdfReader
 
 
 SECTION_KEYS = (
@@ -11,6 +14,30 @@ SECTION_KEYS = (
     "requirements",
     "work_scope",
 )
+
+SECTION_HEADINGS: dict[str, tuple[str, ...]] = {
+    "technical_specification": (
+        "technical specification",
+        "technical assignment",
+        "техническое задание",
+        "техническая спецификация",
+        "тех задание",
+        "тз",
+    ),
+    "requirements": (
+        "requirements",
+        "qualification requirements",
+        "требования",
+        "квалификационные требования",
+    ),
+    "work_scope": (
+        "work scope",
+        "scope of work",
+        "volumes of work",
+        "объемы работ",
+        "перечень работ",
+    ),
+}
 
 
 class DocumentParseError(ValueError):
@@ -27,15 +54,50 @@ def _empty_sections() -> dict[str, str]:
     return {key: "" for key in SECTION_KEYS}
 
 
-def _split_sections(text: str) -> dict[str, str]:
-    """Best-effort section splitter placeholder.
+def _normalize_heading(value: str) -> str:
+    lowered = value.lower().replace("ё", "е")
+    cleaned = re.sub(r"[^a-zа-я0-9 ]+", " ", lowered, flags=re.IGNORECASE)
+    return " ".join(cleaned.split())
 
-    Full heading detection is implemented in later substeps.
-    """
+
+def _detect_section_heading(line: str) -> str | None:
+    normalized = _normalize_heading(line)
+    if not normalized:
+        return None
+
+    for key, aliases in SECTION_HEADINGS.items():
+        for alias in aliases:
+            if normalized == alias:
+                return key
+            if normalized.startswith(f"{alias} ") and len(normalized) <= len(alias) + 4:
+                return key
+    return None
+
+
+def _split_sections(text: str) -> dict[str, str]:
+    """Best-effort section splitter based on heading aliases."""
 
     normalized = _normalize_text(text)
     sections = _empty_sections()
-    sections["technical_specification"] = normalized
+    if not normalized:
+        return sections
+
+    active_key = "technical_specification"
+    bucket: dict[str, list[str]] = {key: [] for key in SECTION_KEYS}
+
+    for line in normalized.splitlines():
+        heading_key = _detect_section_heading(line)
+        if heading_key is not None:
+            active_key = heading_key
+            continue
+        bucket[active_key].append(line)
+
+    for key in SECTION_KEYS:
+        sections[key] = "\n".join(bucket[key]).strip()
+
+    if not any(sections.values()):
+        sections["technical_specification"] = normalized
+
     return sections
 
 
@@ -54,14 +116,24 @@ def parse_pdf(file_path: str | Path) -> dict[str, Any]:
     """Parse PDF content into a unified intermediate document structure."""
 
     path = _validate_path(file_path, expected_suffix=".pdf")
+    try:
+        reader = PdfReader(str(path))
+        text_chunks = [page.extract_text() or "" for page in reader.pages]
+        text = _normalize_text("\n".join(text_chunks))
+    except Exception as exc:  # pragma: no cover - defensive, triggered in broken-file test
+        raise DocumentParseError(f"Failed to parse PDF file: {path}") from exc
+
+    if not text:
+        raise DocumentParseError(f"No extractable text found in PDF: {path}")
+
     return {
         "document_type": "pdf",
         "file_path": str(path),
-        "text": "",
-        "sections": _empty_sections(),
+        "text": text,
+        "sections": _split_sections(text),
         "tables": [],
         "metadata": {
-            "page_count": 0,
+            "page_count": len(reader.pages),
         },
     }
 
