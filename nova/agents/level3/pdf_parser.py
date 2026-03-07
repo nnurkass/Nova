@@ -14,7 +14,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from PyPDF2 import PdfReader
 
-from nova.integrations.abc.models import ABCWork
+from nova.integrations.abc.models import ABCMaterial, ABCWork
 
 
 SECTION_KEYS = (
@@ -63,6 +63,27 @@ WORK_NAME_HINTS = (
     "бетон",
 )
 
+MATERIAL_NAME_HINTS = (
+    "material",
+    "materials",
+    "cement",
+    "rebar",
+    "brick",
+    "sand",
+    "gravel",
+    "pipe",
+    "insulation",
+    "материал",
+    "материалы",
+    "цемент",
+    "кирпич",
+    "песок",
+    "щебень",
+    "арматур",
+    "труба",
+    "утепл",
+)
+
 UNIT_ALIASES = {
     "м2": "m2",
     "м²": "m2",
@@ -93,6 +114,12 @@ class DocumentParseError(ValueError):
 
 class WorkExtractionToolInput(BaseModel):
     """Input schema for the work extraction tool."""
+
+    file_path: str = Field(..., min_length=1, description="Path to a local PDF or DOCX file.")
+
+
+class MaterialExtractionToolInput(BaseModel):
+    """Input schema for the materials extraction tool."""
 
     file_path: str = Field(..., min_length=1, description="Path to a local PDF or DOCX file.")
 
@@ -339,6 +366,11 @@ def _looks_like_work_name(name: str) -> bool:
     return any(hint in normalized for hint in WORK_NAME_HINTS)
 
 
+def _looks_like_material_name(name: str) -> bool:
+    normalized = _normalize_heading(name)
+    return any(hint in normalized for hint in MATERIAL_NAME_HINTS)
+
+
 def _find_column_index(headers: list[str], aliases: tuple[str, ...]) -> int | None:
     normalized_headers = [_normalize_heading(header) for header in headers]
     for index, header in enumerate(normalized_headers):
@@ -489,6 +521,140 @@ def _extract_work_payload(file_path: str) -> dict[str, Any]:
     }
 
 
+def _extract_material_from_tables(tables: list[dict[str, list[list[str]] | list[str]]]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    generated = 1
+
+    for table in tables:
+        headers = [str(value) for value in table.get("headers", [])]
+        rows = table.get("rows", [])
+        if not headers or not isinstance(rows, list):
+            continue
+
+        name_idx = _find_column_index(headers, ("name", "наименование", "материал", "material"))
+        quantity_idx = _find_column_index(headers, ("qty", "quantity", "кол", "объем", "volume"))
+        unit_idx = _find_column_index(headers, ("unit", "ед", "изм", "uom"))
+        code_idx = _find_column_index(headers, ("code", "код", "шифр", "позиция"))
+        if name_idx is None or quantity_idx is None or unit_idx is None:
+            continue
+
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            if max(name_idx, quantity_idx, unit_idx) >= len(row):
+                continue
+            raw_name = str(row[name_idx]).strip()
+            raw_quantity = str(row[quantity_idx]).strip()
+            raw_unit = str(row[unit_idx]).strip()
+            if not raw_name or not raw_quantity or not raw_unit:
+                continue
+            if not _looks_like_material_name(raw_name):
+                continue
+
+            try:
+                quantity = _parse_number(raw_quantity)
+            except ValueError:
+                continue
+
+            raw_code = ""
+            if code_idx is not None and code_idx < len(row):
+                raw_code = str(row[code_idx]).strip()
+            code = raw_code or f"M-{generated:03d}"
+            generated += 1
+
+            record = ABCMaterial(
+                code=code,
+                name=raw_name,
+                unit=_normalize_unit(raw_unit),
+                quantity=quantity,
+            ).model_dump(mode="json")
+            records.append(record)
+
+    return records
+
+
+def _extract_material_from_text_section(text: str, *, code_start: int) -> tuple[list[dict[str, Any]], int]:
+    records: list[dict[str, Any]] = []
+    next_code = code_start
+    for raw_line in text.splitlines():
+        line = raw_line.strip(" -•\t")
+        if not line:
+            continue
+
+        match = LINE_ITEM_PATTERN.match(line)
+        if not match:
+            continue
+
+        name = match.group("name").strip()
+        if not _looks_like_material_name(name):
+            continue
+
+        try:
+            quantity = _parse_number(match.group("quantity"))
+        except ValueError:
+            continue
+
+        code = (match.group("code") or "").strip() or f"M-{next_code:03d}"
+        next_code += 1
+        record = ABCMaterial(
+            code=code,
+            name=name,
+            unit=_normalize_unit(match.group("unit")),
+            quantity=quantity,
+        ).model_dump(mode="json")
+        records.append(record)
+
+    return records, next_code
+
+
+def _extract_material_records(document: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    records = _extract_material_from_tables(document.get("tables", []))
+    source_sections: set[str] = set()
+
+    next_code = len(records) + 1
+    sections = document.get("sections", {})
+    if isinstance(sections, dict):
+        for section_name in ("requirements", "technical_specification", "work_scope"):
+            section_text = sections.get(section_name, "")
+            if not isinstance(section_text, str) or not section_text:
+                continue
+
+            section_records, next_code = _extract_material_from_text_section(section_text, code_start=next_code)
+            if section_records:
+                source_sections.add(section_name)
+                records.extend(section_records)
+
+    unique_records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, float]] = set()
+    for record in records:
+        key = _record_key(record)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_records.append(record)
+
+    if document.get("tables"):
+        source_sections.add("tables")
+
+    return unique_records, sorted(source_sections)
+
+
+def _extract_material_payload(file_path: str) -> dict[str, Any]:
+    document = parse_document(file_path)
+    material_list, source_sections = _extract_material_records(document)
+    return {
+        "tool": "extract_materials",
+        "status": "ok",
+        "file_path": document["file_path"],
+        "document_type": document["document_type"],
+        "materials_list": material_list,
+        "source_sections": source_sections,
+        "counts": {
+            "material_items": len(material_list),
+        },
+    }
+
+
 def _extract_work_list_sync(*, file_path: str) -> str:
     try:
         return _json_dumps(_extract_work_payload(file_path))
@@ -498,6 +664,17 @@ def _extract_work_list_sync(*, file_path: str) -> str:
 
 async def _extract_work_list_async(*, file_path: str) -> str:
     return await asyncio.to_thread(_extract_work_list_sync, file_path=file_path)
+
+
+def _extract_materials_sync(*, file_path: str) -> str:
+    try:
+        return _json_dumps(_extract_material_payload(file_path))
+    except Exception as exc:  # pragma: no cover - validated by tool error tests
+        return _tool_error("extract_materials", file_path, exc)
+
+
+async def _extract_materials_async(*, file_path: str) -> str:
+    return await asyncio.to_thread(_extract_materials_sync, file_path=file_path)
 
 
 extract_work_list = StructuredTool.from_function(
@@ -511,11 +688,24 @@ extract_work_list = StructuredTool.from_function(
     args_schema=WorkExtractionToolInput,
 )
 
+extract_materials = StructuredTool.from_function(
+    func=_extract_materials_sync,
+    coroutine=_extract_materials_async,
+    name="extract_materials",
+    description=(
+        "Extract a structured list of material items from a local PDF/DOCX file. "
+        "Returns JSON with normalized code, name, unit, quantity, and source section metadata."
+    ),
+    args_schema=MaterialExtractionToolInput,
+)
+
 
 __all__ = [
     "DocumentParseError",
+    "MaterialExtractionToolInput",
     "SECTION_KEYS",
     "WorkExtractionToolInput",
+    "extract_materials",
     "extract_work_list",
     "parse_docx",
     "parse_document",

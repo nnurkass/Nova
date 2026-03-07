@@ -12,6 +12,7 @@ import pytest
 
 from nova.agents.level3.pdf_parser import (
     DocumentParseError,
+    extract_materials,
     extract_work_list,
     parse_docx,
     parse_document,
@@ -238,3 +239,50 @@ def test_extract_work_list_from_pdf_text_section(tmp_path: Path):
     assert payload["status"] == "ok"
     assert payload["counts"]["work_items"] == 2
     assert payload["source_sections"] == ["work_scope"]
+
+
+def test_extract_materials_from_docx_table(tmp_path: Path):
+    sample = tmp_path / "materials.docx"
+    sample.write_bytes(
+        _build_docx(
+            paragraphs=[
+                "Technical specification",
+                "Materials should follow project catalog.",
+                "Requirements",
+                "Cement M400 25 t",
+            ],
+            table_rows=[
+                ["Code", "Material name", "Unit", "Qty"],
+                ["M-01", "Cement M400", "t", "25"],
+                ["M-02", "Rebar A500", "kg", "1400"],
+                ["W-99", "Concrete pouring", "m3", "45"],
+            ],
+        )
+    )
+
+    result = extract_materials.invoke({"file_path": str(sample)})
+    payload = json.loads(result)
+
+    assert payload["tool"] == "extract_materials"
+    assert payload["status"] == "ok"
+    assert payload["counts"]["material_items"] == 2
+    assert [item["code"] for item in payload["materials_list"]] == ["M-01", "M-02"]
+    assert payload["source_sections"] == ["requirements", "tables"]
+
+
+def test_level3_exports_document_tools():
+    from nova.agents.level3 import (
+        MaterialExtractionToolInput,
+        WorkExtractionToolInput,
+        extract_materials as exported_extract_materials,
+        extract_work_list as exported_extract_work_list,
+        parse_docx as exported_parse_docx,
+        parse_pdf as exported_parse_pdf,
+    )
+
+    assert exported_extract_work_list.name == "extract_work_list"
+    assert exported_extract_materials.name == "extract_materials"
+    assert WorkExtractionToolInput.model_fields["file_path"].annotation is str
+    assert MaterialExtractionToolInput.model_fields["file_path"].annotation is str
+    assert callable(exported_parse_pdf)
+    assert callable(exported_parse_docx)
