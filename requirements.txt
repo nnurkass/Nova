@@ -37,6 +37,7 @@ xmltodict>=0.13.0,<1.0.0
 openpyxl>=3.1.0,<4.0.0
 # Note: PyPDF2 is deprecated upstream; planned migration to `pypdf` in v0.2
 PyPDF2>=3.0.0,<4.0.0
+python-docx>=1.1.0,<2.0.0
 
 # --- Testing ---
 pytest>=8.0.0,<9.0.0
