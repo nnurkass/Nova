@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 from PyPDF2 import PdfReader
 
@@ -101,6 +103,83 @@ def _split_sections(text: str) -> dict[str, str]:
     return sections
 
 
+def _normalize_table_rows(rows: list[list[str]]) -> dict[str, list[list[str]] | list[str]]:
+    if not rows:
+        return {"headers": [], "rows": []}
+
+    width = max(len(row) for row in rows)
+    normalized_rows: list[list[str]] = []
+    for row in rows:
+        normalized = row + [""] * (width - len(row))
+        if any(cell.strip() for cell in normalized):
+            normalized_rows.append([_normalize_text(cell) for cell in normalized])
+
+    if not normalized_rows:
+        return {"headers": [], "rows": []}
+
+    return {
+        "headers": normalized_rows[0],
+        "rows": normalized_rows[1:],
+    }
+
+
+def _extract_docx_with_python_docx(path: Path) -> tuple[list[str], list[dict[str, list[list[str]] | list[str]]]]:
+    from docx import Document  # type: ignore[import-not-found]
+
+    document = Document(str(path))
+    paragraphs = [_normalize_text(paragraph.text) for paragraph in document.paragraphs if paragraph.text.strip()]
+    tables: list[dict[str, list[list[str]] | list[str]]] = []
+
+    for table in document.tables:
+        rows = []
+        for row in table.rows:
+            cells = [_normalize_text(cell.text) for cell in row.cells]
+            if any(cells):
+                rows.append(cells)
+        normalized = _normalize_table_rows(rows)
+        if normalized["headers"]:
+            tables.append(normalized)
+
+    return paragraphs, tables
+
+
+def _extract_docx_with_xml(path: Path) -> tuple[list[str], list[dict[str, list[list[str]] | list[str]]]]:
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            document_xml = archive.read("word/document.xml")
+    except Exception as exc:  # pragma: no cover - defensive path
+        raise DocumentParseError(f"Failed to read DOCX zip container: {path}") from exc
+
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:  # pragma: no cover - defensive path
+        raise DocumentParseError(f"Invalid DOCX XML payload: {path}") from exc
+
+    paragraphs: list[str] = []
+    for paragraph in root.findall(".//w:body/w:p", ns):
+        fragments = [node.text or "" for node in paragraph.findall(".//w:t", ns)]
+        text = _normalize_text(" ".join(fragments))
+        if text:
+            paragraphs.append(text)
+
+    tables: list[dict[str, list[list[str]] | list[str]]] = []
+    for table in root.findall(".//w:body/w:tbl", ns):
+        rows: list[list[str]] = []
+        for row in table.findall("./w:tr", ns):
+            cells: list[str] = []
+            for cell in row.findall("./w:tc", ns):
+                fragments = [node.text or "" for node in cell.findall(".//w:t", ns)]
+                cells.append(_normalize_text(" ".join(fragments)))
+            if any(cells):
+                rows.append(cells)
+        normalized = _normalize_table_rows(rows)
+        if normalized["headers"]:
+            tables.append(normalized)
+
+    return paragraphs, tables
+
+
 def _validate_path(file_path: str | Path, *, expected_suffix: str) -> Path:
     path = Path(file_path).expanduser()
     if not path.exists():
@@ -142,15 +221,27 @@ def parse_docx(file_path: str | Path) -> dict[str, Any]:
     """Parse DOCX content into a unified intermediate document structure."""
 
     path = _validate_path(file_path, expected_suffix=".docx")
+    parser_backend = "python-docx"
+    try:
+        paragraphs, tables = _extract_docx_with_python_docx(path)
+    except Exception:
+        parser_backend = "xml-fallback"
+        paragraphs, tables = _extract_docx_with_xml(path)
+
+    text = _normalize_text("\n".join(paragraphs))
+    if not text and not tables:
+        raise DocumentParseError(f"No extractable content found in DOCX: {path}")
+
     return {
         "document_type": "docx",
         "file_path": str(path),
-        "text": "",
-        "sections": _empty_sections(),
-        "tables": [],
+        "text": text,
+        "sections": _split_sections(text),
+        "tables": tables,
         "metadata": {
-            "paragraph_count": 0,
-            "table_count": 0,
+            "paragraph_count": len(paragraphs),
+            "table_count": len(tables),
+            "parser_backend": parser_backend,
         },
     }
 

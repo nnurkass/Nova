@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 import pytest
 
@@ -68,6 +71,60 @@ def _build_single_page_pdf(lines: list[str]) -> bytes:
     return b"".join(parts) + xref + trailer
 
 
+def _build_docx(paragraphs: list[str], table_rows: list[list[str]] | None = None) -> bytes:
+    paragraph_xml = "".join(
+        f"<w:p><w:r><w:t>{xml_escape(paragraph)}</w:t></w:r></w:p>"
+        for paragraph in paragraphs
+    )
+
+    table_xml = ""
+    if table_rows:
+        rows = []
+        for row in table_rows:
+            cells = "".join(
+                f"<w:tc><w:p><w:r><w:t>{xml_escape(cell)}</w:t></w:r></w:p></w:tc>"
+                for cell in row
+            )
+            rows.append(f"<w:tr>{cells}</w:tr>")
+        table_xml = f"<w:tbl>{''.join(rows)}</w:tbl>"
+
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{paragraph_xml}{table_xml}<w:sectPr/></w:body>"
+        "</w:document>"
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    document_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+    )
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", rels_xml)
+        archive.writestr("word/document.xml", document_xml)
+        archive.writestr("word/_rels/document.xml.rels", document_rels_xml)
+    return buffer.getvalue()
+
+
 def test_parse_pdf_contract_returns_expected_keys(tmp_path: Path):
     sample = tmp_path / "sample.pdf"
     sample.write_bytes(
@@ -96,14 +153,32 @@ def test_parse_pdf_contract_returns_expected_keys(tmp_path: Path):
 
 def test_parse_docx_contract_returns_expected_keys(tmp_path: Path):
     sample = tmp_path / "sample.docx"
-    sample.write_bytes(b"PK\x03\x04")
+    sample.write_bytes(
+        _build_docx(
+            paragraphs=[
+                "Technical specification",
+                "Construction of school gym block",
+                "Requirements",
+                "Use certified concrete grade M350",
+            ],
+            table_rows=[
+                ["Code", "Name", "Unit", "Qty"],
+                ["W-01", "Earth works", "m3", "120"],
+                ["W-02", "Concrete pouring", "m3", "45"],
+            ],
+        )
+    )
 
     payload = parse_docx(sample)
 
     assert payload["document_type"] == "docx"
-    assert payload["text"] == ""
+    assert "Construction of school gym block" in payload["text"]
     assert set(payload["sections"]) == {"technical_specification", "requirements", "work_scope"}
-    assert payload["tables"] == []
+    assert payload["sections"]["requirements"] == "Use certified concrete grade M350"
+    assert len(payload["tables"]) == 1
+    assert payload["tables"][0]["headers"] == ["Code", "Name", "Unit", "Qty"]
+    assert payload["tables"][0]["rows"][0] == ["W-01", "Earth works", "m3", "120"]
+    assert payload["metadata"]["table_count"] == 1
 
 
 def test_parse_document_unsupported_extension_raises(tmp_path: Path):
