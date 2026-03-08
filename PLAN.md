@@ -214,19 +214,21 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 
 -----
 
-## Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
+## Шаг 2.4 — PDF-driven ABC adapter + JSON contract
 
 ### Описание
 
-Создать двустороннюю работу с форматом АВС: чтение экспортов и формирование импортов.
+Создать детерминированный адаптер для PDF-документов, выпущенных АВС, с
+нормализованным JSON-контрактом для ресурсной ведомости. XML вынести в
+отдельный будущий шаг после появления реальных образцов экспорта/импорта.
 
 ### Подшаги:
 
-- **2.4.1** — Изучить и задокументировать структуру XML-файлов АВС — создать `docs/ABC_XML_FORMAT.md` с примерами и описанием всех тегов (локальная смета, ресурсная ведомость)
-- **2.4.2** — Создать `integrations/abc/reader.py` — функция `read_abc_xml(file_path)`: парсинг XML через `xmltodict`, маппинг на Pydantic-модели `ABCWork`, `ABCMaterial`, `EstimatePosition`
-- **2.4.3** — Создать `integrations/abc/writer.py` — функция `write_abc_xml(materials, output_path)`: генерация корректного XML для импорта в АВС из списка материалов и работ
-- **2.4.4** — Создать `@tool` функцию `abc_xml_reader(file_path)` и `abc_xml_writer(data, output_path)` — LangChain обёртки
-- **2.4.5** — Написать тест `tests/integration/test_abc_integration.py` — round-trip тест: читаем XML → модифицируем → пишем → снова читаем, проверяем целостность данных
+- **2.4.1** — Задокументировать PDF-структуру АВС — создать `docs/ABC_PDF_ADAPTER.md` с описанием секций `Q9`, `QМ`, `ИД`, JSON-схемы statement и правил санитизации fixture-данных
+- **2.4.2** — Создать `integrations/abc/reader.py` — функция `read_abc_document(file_path)`: сканирование PDF, поиск секций `Q9/QМ/ИД`, маппинг на `EstimateDocumentMeta`, `EstimatePosition`, `ABCWork`, `ABCMaterial`
+- **2.4.3** — Создать `integrations/abc/writer.py` — функция `write_abc_statement(statement, output_path)`: генерация стабильного JSON-файла с `meta`, `positions`, `works`, `materials`, `totals`
+- **2.4.4** — Создать `@tool` функции `abc_document_reader(file_path)` и `abc_statement_writer(data, output_path)` и сохранить временные alias `abc_xml_reader` / `abc_xml_writer` для downstream-совместимости
+- **2.4.5** — Написать тесты `tests/unit/test_abc_pdf_adapter.py` и `tests/integration/test_abc_integration.py` — round-trip тест: читаем PDF → нормализуем → пишем JSON → снова читаем JSON snapshot, проверяем целостность данных
 
 -----
 
@@ -280,10 +282,10 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 ### Подшаги:
 
 - **3.2.1** — Создать `agents/level2/pto/prompts.py` — системный промпт ПТО: роль технического специалиста, инструкции по анализу ТЗ, нормативы РК (СН РК, СНИП), формат ресурсной ведомости, правила работы с АВС
-- **3.2.2** — Создать `agents/level2/pto/agent.py` — функция `create_pto_agent()`: `create_react_agent` с увеличенным `max_tokens=16384`, инструменты: `pdf_parser`, `extract_work_list`, `extract_materials`, `abc_xml_reader`, `abc_xml_writer`
+- **3.2.2** — Создать `agents/level2/pto/agent.py` — функция `create_pto_agent()`: `create_react_agent` с увеличенным `max_tokens=16384`, инструменты: `pdf_parser`, `extract_work_list`, `extract_materials`, `abc_document_reader`, `abc_statement_writer` (alias `abc_xml_reader` / `abc_xml_writer` сохраняются временно)
 - **3.2.3** — Реализовать двухфазную логику работы: Фаза 1 — анализ документов (парсинг, структурирование), Фаза 2 — формирование ведомости (маппинг на нормативы АВС, расчёт объёмов с запасом 5%)
-- **3.2.4** — Добавить валидацию выходных данных: каждая позиция должна иметь код, единицу измерения, объём; итоговая ведомость экспортируется в XML АВС
-- **3.2.5** — Написать тест `tests/unit/test_pto_agent.py` — подать sample-документ тендера, проверить что агент корректно извлекает позиции и формирует XML
+- **3.2.4** — Добавить валидацию выходных данных: каждая позиция должна иметь код, единицу измерения, объём; итоговая ведомость экспортируется в JSON statement АВС, а XML добавляется отдельным адаптером позже
+- **3.2.5** — Написать тест `tests/unit/test_pto_agent.py` — подать sample-документ тендера, проверить что агент корректно извлекает позиции и формирует JSON statement
 
 -----
 
@@ -476,7 +478,7 @@ python -c "from integrations.goszakup.client import GoszakupClient; c = Goszakup
 - **5.3.1** — Аудит текущего покрытия: `pytest --cov=. --cov-report=html`, изучить отчёт, выявить непокрытые критические пути
 - **5.3.2** — Дописать недостающие unit-тесты: все tools, все модели данных, валидаторы, роутеры графа
 - **5.3.3** — Дописать интеграционные тесты: полный пайплайн с реальной БД, Redis; тесты API эндпоинтов; тесты WebSocket
-- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, XML из АВС, mock ответы goszakup API, тестовые задачи разной сложности
+- **5.3.4** — Создать `tests/fixtures/` — набор тестовых данных: sample PDF тендеров, PDF/JSON fixtures из АВС, mock ответы goszakup API, тестовые задачи разной сложности
 - **5.3.5** — Настроить GitHub Actions `/.github/workflows/tests.yml` — автоматический запуск тестов на каждый push в main и PR
 
 -----

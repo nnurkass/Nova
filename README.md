@@ -194,7 +194,7 @@ construction_ai/
 │   │
 │   └── level3/                 # Tools (инструменты)
 │       ├── goszakup_tool.py    # GraphQL клиент
-│       ├── abc_tool.py         # Интеграция с АВС
+│       ├── abc_tool.py         # ABC PDF/JSON adapter
 │       ├── pdf_parser.py       # Парсинг документов
 │       ├── stock_tool.py       # Склад
 │       └── order_tool.py       # Заявки
@@ -211,8 +211,8 @@ construction_ai/
 │   │   ├── queries.py          # GraphQL запросы
 │   │   └── models.py           # Pydantic модели
 │   └── abc/
-│       ├── reader.py           # Чтение XML АВС
-│       ├── writer.py           # Запись XML АВС
+│       ├── reader.py           # Чтение PDF АВС в typed models
+│       ├── writer.py           # Запись JSON statement
 │       └── models.py
 │
 ├── api/
@@ -289,16 +289,14 @@ query FindTenders($filter: AnnouncementFilter) {
 
 ### 📐 ПТО Агент (Уровень 2)
 
-Анализирует техническую документацию и работает с АВС через XML.
+Анализирует техническую документацию и работает с АВС через PDF-driven adapter.
 
 ```python
-# Чтение экспорта из АВС
+# Чтение PDF-документа АВС
 @tool
-def abc_xml_reader(file_path: str) -> dict:
-    """Читает XML экспорт из АВС Сметные решения"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = xmltodict.parse(f.read())
-    return extract_materials(data)
+def abc_document_reader(file_path: str) -> dict:
+    """Читает PDF из АВС и возвращает нормализованный statement"""
+    return read_abc_document(file_path).model_dump(mode="json")
 ```
 
 ### 📦 Снабженец (Уровень 2)
@@ -324,14 +322,14 @@ Authorization: Bearer {YOUR_TOKEN}
 
 ### АВС Сметные решения
 
-Интеграция через файловый обмен (XML/Excel):
+Интеграция через файловый обмен и PDF-driven adapter:
 
 ```
-АВС Экспорт → XML файл → ПТО Агент читает → обрабатывает → 
-→ формирует ресурсную ведомость → XML для АВС Импорт
+АВС PDF → ПТО Агент читает → нормализует statement → 
+→ формирует ресурсную ведомость → JSON contract для дальнейшей обработки
 ```
 
-**Поддерживаемые форматы:** XML (основной), Excel (XLSX), совместимость с казахстанскими нормативами КЗ.
+**Поддерживаемые форматы:** PDF (основной для текущего шага), JSON statement (внутренний контракт), Excel (XLSX). XML вынесен в будущий отдельный адаптер после появления образцов.
 
 -----
 
@@ -390,7 +388,7 @@ class AgentConfig(BaseSettings):
 
 - [x] Архитектура LangGraph Supervisor
 - [x] Государственный Закупщик + GraphQL goszakup.gov.kz
-- [x] ПТО Агент + парсинг документов + базовая интеграция АВС XML
+- [x] ПТО Агент + парсинг документов + базовый ABC PDF/JSON adapter
 - [x] Снабженец + проверка склада + формирование заявок
 - [x] COO оркестратор
 - [ ] FastAPI эндпоинты
@@ -408,7 +406,7 @@ class AgentConfig(BaseSettings):
 
 - [ ] Все 5 агентов в полной интеграции
 - [ ] Автоматическая подача заявок на тендер (с подтверждением)
-- [ ] Полная интеграция с АВС (двусторонняя)
+- [ ] Полная интеграция с АВС (PDF/JSON + будущий XML adapter)
 - [ ] Дашборд мониторинга
 - [ ] Мобильное приложение для уведомлений
 
