@@ -24,9 +24,14 @@ from nova.integrations.abc.models import (
 
 
 _SECTION_MARKERS = {
-    "Q9": ("локальная смета",),
-    "QM": ("ведомость материальных ресурсов", "материальные ресурсы"),
-    "ID": ("исходные данные", "строка данных авс"),
+    "Q9": ("локальная смета", "lokalnaya smeta", "local estimate"),
+    "QM": (
+        "ведомость материальных ресурсов",
+        "материальные ресурсы",
+        "vedomost materialnyh resursov",
+        "material resources",
+    ),
+    "ID": ("исходные данные", "строка данных авс", "ishodnye dannye", "source data"),
 }
 
 _BLOCK_START_RE = re.compile(r"^\d+\s+[0-9A-Za-zА-Яа-я]{2,}(?:-[0-9A-Za-zА-Яа-я]+)+")
@@ -67,7 +72,13 @@ def _read_pdf_pages(file_path: Path) -> list[tuple[int, str]]:
     pages: list[tuple[int, str]] = []
 
     for page_number, page in enumerate(reader.pages, start=1):
-        text = _normalize_whitespace(page.extract_text() or "")
+        raw_text = page.extract_text() or ""
+        lines = [
+            normalized
+            for raw_line in raw_text.splitlines()
+            if (normalized := _normalize_whitespace(raw_line))
+        ]
+        text = "\n".join(lines)
         if text:
             pages.append((page_number, text))
 
@@ -281,6 +292,13 @@ def _positions_to_materials(positions: Iterable[EstimatePosition]) -> list[ABCMa
     ]
 
 
+def _sum_prices(positions: Iterable[EstimatePosition]) -> float | None:
+    total = sum(position.total_price or 0.0 for position in positions if position.total_price is not None)
+    if total == 0:
+        return None
+    return round(total, 4)
+
+
 def read_abc_document(file_path: str | Path) -> ResourceStatement:
     """Parse an ABC-generated PDF document into a normalized resource statement."""
     path = Path(file_path)
@@ -311,14 +329,8 @@ def read_abc_document(file_path: str | Path) -> ResourceStatement:
         positions=positions,
         works=_positions_to_works(q9_positions),
         materials=_positions_to_materials(qm_positions),
-        total_works_cost=sum(
-            position.total_price or 0.0 for position in q9_positions if position.total_price is not None
-        )
-        or None,
-        total_materials_cost=sum(
-            position.total_price or 0.0 for position in qm_positions if position.total_price is not None
-        )
-        or None,
+        total_works_cost=_sum_prices(q9_positions),
+        total_materials_cost=_sum_prices(qm_positions),
     )
 
 

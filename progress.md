@@ -1,6 +1,6 @@
 # NOVA — Прогресс разработки
 
-**Последнее обновление:** 2026-03-06 (Шаг 1.5)
+**Последнее обновление:** 2026-03-09 (Шаг 2.4)
 **Ветка:** main
 **Python:** 3.11.x
 **Стек:** LangGraph 1.0.10 + Claude Sonnet 4.6 + FastAPI + PostgreSQL + Redis
@@ -20,7 +20,7 @@
 - [ ] Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
 - [ ] Шаг 2.2 — Инструменты поиска и оценки тендеров
 - [ ] Шаг 2.3 — Парсер документов (PDF/DOCX)
-- [ ] Шаг 2.4 — Интеграция с АВС Сметные решения (XML)
+- [✅] Шаг 2.4 — PDF-driven ABC adapter + JSON contract (2026-03-09)
 - [ ] Шаг 2.5 — Инструменты склада и заявок (заглушки MVP)
 
 ## ЭТАП 3 — Агенты уровня 2
@@ -202,3 +202,47 @@
 ```
 
 **Следующий шаг:** Шаг 2.1 — Web-скрейпер goszakup.gov.kz (httpx + BeautifulSoup)
+
+---
+
+### 2026-03-09 — Шаг 2.4
+
+**Выполнено:**
+- Обновлены `PLAN.md` и `README.md`: шаг 2.4 переведён с XML на PDF-driven ABC adapter + JSON contract, XML вынесен в будущий отдельный адаптер
+- Создан `docs/ABC_PDF_ADAPTER.md`: зафиксированы секции `Q9`, `QM`, `ID`, внутренний JSON contract и compatibility aliases
+- Расширен `nova/integrations/abc/models.py`
+  - Добавлен `EstimateDocumentMeta`
+  - `ResourceStatement` расширен полями `meta` и `positions`
+  - `EstimatePosition` расширен полями `section_name`, `source_page`, `position_type` с совместимостью через `is_work`
+- Реализован `nova/integrations/abc/reader.py`
+  - Канонический `read_abc_document(file_path)` читает PDF через `PyPDF2`, находит секции `Q9/QM/ID`, строит `ResourceStatement`
+  - `read_abc_xml(file_path)` сохранён как compatibility alias
+  - Для `ID` добавлен fallback-парсинг, если в `Q9` не удалось выделить work-позиции
+- Реализован `nova/integrations/abc/writer.py`
+  - Канонический `write_abc_statement(statement, output_path)` пишет стабильный UTF-8 JSON
+  - Добавлены `serialize_abc_statement()` и `deserialize_abc_statement()` для snapshot/tool round-trip
+  - `write_abc_xml(...)` сохранён как transitional alias поверх JSON writer
+- Реализован `nova/agents/level3/abc_tool.py`
+  - Канонические tools: `abc_document_reader`, `abc_statement_writer`
+  - Compatibility aliases: `abc_xml_reader`, `abc_xml_writer`
+  - Резолв относительных путей через `ABC_EXPORT_PATH` и `ABC_IMPORT_PATH` сделан ленивым, без eager-загрузки `settings` на импорте
+- Обновлён `nova/integrations/abc/__init__.py`: экспорт моделей, канонических функций и compatibility aliases
+- Созданы fixtures в `tests/fixtures/abc_pdf/`
+  - `sample_statement.pdf` — synthetic PDF fixture с секциями `Q9`, `QM`, `ID`
+  - `no_sections.pdf` — негативный fixture
+  - `expected_statement.json` — snapshot нормализованного statement
+  - `README.md` — описание происхождения и санитизации fixture-данных
+- Созданы тесты `tests/unit/test_abc_pdf_adapter.py` и `tests/integration/test_abc_integration.py`
+
+**Проверка:**
+```
+✅ ./venv/bin/python -m pytest tests/unit/test_abc_pdf_adapter.py -v --tb=short  →  8 passed
+✅ ./venv/bin/python -m pytest tests/integration/test_abc_integration.py -v --tb=short  →  1 passed
+✅ ./venv/bin/python -m pytest tests/ -v --tb=short  →  93 passed
+✅ ./venv/bin/python -c "from pathlib import Path; from tempfile import TemporaryDirectory; from nova.integrations.abc import read_abc_document, write_abc_statement; sample = Path('/Users/nnurkass/Downloads/Сметная_документация_10.02.pdf'); stmt = read_abc_document(sample); tmp = TemporaryDirectory(); out = Path(tmp.name) / 'roundtrip.json'; write_abc_statement(stmt, out); print(f'ABC OK: {len(stmt.works)} works, {len(stmt.materials)} materials, output={out.exists()}')"
+   → ABC OK: 7 works, 1218 materials, output=True
+✅ ./venv/bin/python -c "from nova.integrations.abc import *; print('Import OK')"  →  Import OK
+⚠️  В окружении остаются внешние предупреждения `PyPDF2` deprecation и `langchain_core`/`pytest_asyncio` под Python 3.14, но проверки проходят
+```
+
+**Следующий шаг:** Шаг 2.3 — Парсер документов (PDF/DOCX) с акцентом на общее извлечение страниц/секций для дальнейшего переиспользования в ABC adapter
