@@ -52,3 +52,9 @@ Thumbs.db
 # Docker volumes (if mapped locally)
 postgres_data/
 redis_data/
+
+# SQLite & local DB
+*.db
+*.sqlite
+*.sqlite3
+data/tender_docs/

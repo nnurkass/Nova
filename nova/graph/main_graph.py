@@ -1,13 +1,26 @@
-"""Main LangGraph skeleton for the Nova procurement pipeline."""
+"""
+Main LangGraph pipeline for the Nova multi-agent construction procurement system.
+
+Orchestrates:
+- COO Agent (Task intake & Executive Summary synthesis)
+- Procurement Agent (Goszakup search, scoring & lot selection)
+- PTO Agent (Technical specification & BOQ extraction via ABC/SN RK)
+- Supply Agent (Warehouse stock checking, deficit calculation & purchase order creation)
+"""
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Optional
 
 from langgraph.graph import END, START, StateGraph
 
+from nova.agents.coo.agent import generate_executive_summary, run_coo_agent
+from nova.agents.level2.procurement.agent import run_procurement_agent
+from nova.agents.level2.pto.agent import run_pto_agent
+from nova.agents.level2.supply.agent import run_supply_agent
 from nova.graph.routers import (
-    ROUTE_COO,
     ROUTE_COMPLETE,
+    ROUTE_COO,
     ROUTE_END,
     ROUTE_PROCUREMENT,
     ROUTE_PTO,
@@ -18,113 +31,58 @@ from nova.graph.routers import (
     should_continue,
 )
 from nova.graph.state import ConstructionState
-from nova.integrations.abc.models import ABCMaterial, ABCWork
-from nova.integrations.goszakup.models import Tender, TenderLot
 
-
-def _copy_metadata(state: ConstructionState, node_name: str) -> dict[str, Any]:
-    metadata = dict(state["metadata"])
-    visited_nodes = list(metadata.get("visited_nodes", []))
-    visited_nodes.append(node_name)
-    metadata["visited_nodes"] = visited_nodes
-    return metadata
-
-
-def _build_stub_tender(task: str) -> Tender:
-    return Tender(
-        id=1,
-        number="STUB-2026-001",
-        name_ru=f"Тендер по задаче: {task}",
-        status_id=1,
-        trd_buy_type_id=1,
-        organizer_id=1,
-        organizer_bin="123456789012",
-        organizer_name_ru="Тестовый организатор",
-        total_sum=25_000_000.0,
-        lots=[
-            TenderLot(
-                id=1,
-                lot_number=1,
-                name_ru="Строительно-монтажные работы",
-                amount=1.0,
-                unit="услуга",
-            )
-        ],
-    )
+logger = logging.getLogger(__name__)
 
 
 def coo_node(state: ConstructionState) -> dict[str, Any]:
-    """Delegate the task to procurement as the first Level 2 agent."""
-    return {
-        "current_agent": ROUTE_PROCUREMENT,
-        "metadata": _copy_metadata(state, ROUTE_COO),
-    }
+    """Execute COO supervisor node."""
+    try:
+        return run_coo_agent(state)
+    except Exception as exc:
+        logger.error("Error in coo_node: %s", exc)
+        errors = list(state.get("errors", []))
+        errors.append(f"COO Agent Error: {exc}")
+        return {"errors": errors, "current_agent": ROUTE_END}
 
 
 def procurement_node(state: ConstructionState) -> dict[str, Any]:
-    """Create a stub tender selection for downstream graph nodes."""
-    metadata = _copy_metadata(state, ROUTE_PROCUREMENT)
-    tender = state["selected_tender"] or _build_stub_tender(state["task"])
-    tenders = list(state["tenders"]) or [tender]
-
-    return {
-        "tenders": tenders,
-        "selected_tender": tender,
-        "current_agent": ROUTE_PTO,
-        "metadata": metadata,
-    }
+    """Execute Procurement agent node."""
+    try:
+        return run_procurement_agent(state)
+    except Exception as exc:
+        logger.error("Error in procurement_node: %s", exc)
+        errors = list(state.get("errors", []))
+        errors.append(f"Procurement Agent Error: {exc}")
+        return {"errors": errors, "current_agent": ROUTE_END}
 
 
 def pto_node(state: ConstructionState) -> dict[str, Any]:
-    """Produce a minimal work/material package for the supply agent."""
-    metadata = _copy_metadata(state, ROUTE_PTO)
-    work_list = list(state["work_list"]) or [
-        ABCWork(code="6.1.2-1.1", name="Земляные работы", unit="м3", quantity=150.0)
-    ]
-    materials_list = list(state["materials_list"]) or [
-        ABCMaterial(code="245-1234", name="Арматура А500С", unit="т", quantity=5.5)
-    ]
-
-    return {
-        "work_list": work_list,
-        "materials_list": materials_list,
-        "current_agent": ROUTE_SUPPLY,
-        "metadata": metadata,
-    }
+    """Execute PTO technical analysis node."""
+    try:
+        return run_pto_agent(state)
+    except Exception as exc:
+        logger.error("Error in pto_node: %s", exc)
+        errors = list(state.get("errors", []))
+        errors.append(f"PTO Agent Error: {exc}")
+        return {"errors": errors, "current_agent": ROUTE_END}
 
 
 def supply_node(state: ConstructionState) -> dict[str, Any]:
-    """Generate stub stock-check and purchase order outputs."""
-    metadata = _copy_metadata(state, ROUTE_SUPPLY)
-    metadata["supply_completed"] = True
-    stock_check = dict(state["stock_check"]) or {
-        "245-1234": {
-            "name": "Арматура А500С",
-            "required": 5.5,
-            "in_stock": 2.0,
-            "to_purchase": 3.5,
-        }
-    }
-    purchase_orders = list(state["purchase_orders"]) or [
-        {
-            "item_code": "245-1234",
-            "name": "Арматура А500С",
-            "quantity": 3.5,
-            "unit": "т",
-        }
-    ]
-
-    return {
-        "stock_check": stock_check,
-        "purchase_orders": purchase_orders,
-        "current_agent": ROUTE_COMPLETE,
-        "metadata": metadata,
-    }
+    """Execute Supply & Inventory verification node."""
+    try:
+        return run_supply_agent(state)
+    except Exception as exc:
+        logger.error("Error in supply_node: %s", exc)
+        errors = list(state.get("errors", []))
+        errors.append(f"Supply Agent Error: {exc}")
+        return {"errors": errors, "current_agent": ROUTE_END}
 
 
 def build_graph():
-    """Compile and return the Step 1.5 skeleton graph."""
+    """Build and compile the multi-agent StateGraph."""
     workflow = StateGraph(ConstructionState)
+
     workflow.add_node(ROUTE_COO, coo_node)
     workflow.add_node(ROUTE_PROCUREMENT, procurement_node)
     workflow.add_node(ROUTE_PTO, pto_node)
@@ -166,4 +124,48 @@ def build_graph():
         },
     )
 
-    return workflow.compile(name="nova_main_graph")
+    return workflow.compile(name="nova_procurement_graph")
+
+
+def run_pipeline(
+    task: str,
+    initial_state: Optional[dict[str, Any]] = None,
+) -> ConstructionState:
+    """Run full procurement pipeline and generate final Executive Summary."""
+    graph = build_graph()
+
+    state: ConstructionState = {
+        "task": task,
+        "tenders": [],
+        "selected_tender": None,
+        "work_list": [],
+        "materials_list": [],
+        "stock_check": {},
+        "purchase_orders": [],
+        "current_agent": "coo",
+        "messages": [],
+        "errors": [],
+        "metadata": {"visited_nodes": []},
+    }
+    if initial_state:
+        state.update(initial_state)
+
+    final_state: ConstructionState = graph.invoke(state)
+
+    # Attach Executive Summary report
+    if not final_state.get("errors") and final_state.get("metadata", {}).get("supply_completed"):
+        report = generate_executive_summary(final_state)
+        final_state["metadata"]["final_report"] = report
+        final_state["metadata"]["executive_summary"] = report
+
+    return final_state
+
+
+__all__ = [
+    "build_graph",
+    "run_pipeline",
+    "coo_node",
+    "procurement_node",
+    "pto_node",
+    "supply_node",
+]
