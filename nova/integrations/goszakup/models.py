@@ -32,6 +32,7 @@ class Tender(BaseModel):
     customer_bin: Optional[str] = None
     customer_name_ru: Optional[str] = None
     ref_region_id: Optional[int] = None
+    region_name: Optional[str] = None
     lots: list[TenderLot] = Field(default_factory=list)
 
 

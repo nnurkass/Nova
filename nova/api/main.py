@@ -6,11 +6,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from uuid import UUID
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from nova.api.routes.chat import router as chat_router
 from nova.api.routes.health import router as health_router
-from nova.api.routes.tasks import router as tasks_router
+from nova.api.routes.tasks import router as tasks_router, task_websocket
 from nova.config import get_settings
 from nova.config.logging import setup_logging
 from nova.db.database import _get_app_engine
@@ -44,6 +46,12 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(tasks_router)
+app.include_router(chat_router)
+
+
+@app.websocket("/ws/tasks/{task_id}")
+async def root_task_websocket(websocket: WebSocket, task_id: UUID):
+    await task_websocket(websocket, task_id)
 
 
 @app.get("/", tags=["Root"])

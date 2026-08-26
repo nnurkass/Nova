@@ -42,3 +42,29 @@ class AgentReport(BaseModel):
     total_cost_estimate: Optional[float] = None
     recommendations: str
     created_at: datetime
+
+
+class ChatMessageSchema(BaseModel):
+    role: str = "user"  # "user" | "assistant" | "system"
+    content: str
+    sender: Optional[str] = None  # "user" | "coo" | "procurement" | "pto" | "supply"
+    timestamp: Optional[str] = None
+    thought: Optional[str] = None
+    artifacts: Optional[dict[str, Any]] = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessageSchema] = Field(default_factory=list)
+    task_id: Optional[UUID] = None
+    current_state: Optional[dict[str, Any]] = None
+
+
+class ChatResponse(BaseModel):
+    response: str
+    sender: str = "coo"
+    sender_title: str = "Операционный директор (COO)"
+    thought: Optional[str] = None
+    state: Optional[dict[str, Any]] = None
+    suggestions: list[str] = Field(default_factory=list)
+

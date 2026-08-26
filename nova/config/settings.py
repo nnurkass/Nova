@@ -26,7 +26,15 @@ class Settings(BaseSettings):
     )
 
     # --- Anthropic LLM ---
-    anthropic_api_key: SecretStr
+    anthropic_api_key: SecretStr = SecretStr("mock-anthropic-key")
+
+    # --- OpenRouter LLM ---
+    openrouter_api_key: SecretStr | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "meta/muse-glimmer-30b"
+
+    # --- OpenAI LLM ---
+    openai_api_key: SecretStr | None = None
 
     # --- Goszakup.gov.kz API ---
     goszakup_token: SecretStr

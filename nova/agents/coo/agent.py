@@ -138,20 +138,9 @@ def generate_executive_summary(state: ConstructionState) -> str:
 
 
 def create_coo_supervisor():
-    """Create COO supervisor orchestrator when Anthropic LLM is available."""
-    try:
-        from langchain_anthropic import ChatAnthropic
-        settings = get_settings()
-        api_key = settings.anthropic_api_key.get_secret_value() if hasattr(settings.anthropic_api_key, "get_secret_value") else str(settings.anthropic_api_key)
-        if not api_key or "mock" in api_key or "test" in api_key:
-            return None
-        return ChatAnthropic(
-            model_name="claude-3-5-sonnet-20241022",
-            anthropic_api_key=api_key,
-            temperature=0.1,
-        )
-    except Exception:
-        return None
+    """Create COO supervisor orchestrator when live LLM is configured."""
+    from nova.config.llm import get_chat_model
+    return get_chat_model(temperature=0.1)
 
 
 def run_coo_agent(state: ConstructionState) -> dict[str, Any]:

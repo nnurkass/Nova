@@ -122,6 +122,7 @@ class GoszakupClient:
             customer_bin=data.get("customer_bin", data.get("customerBin")),
             customer_name_ru=data.get("customer_name_ru", data.get("customerNameRu")),
             ref_region_id=data.get("ref_region_id", data.get("refRegionId")),
+            region_name=data.get("region_name"),
             lots=lots,
         )
 
@@ -174,8 +175,8 @@ class GoszakupClient:
             if len(results) >= limit:
                 break
 
-        # If strict filtering returned nothing, return all samples matching region or budget up to limit
-        if not results and samples:
+        # If query was empty and no results, return sample fixtures
+        if not results and not query and samples:
             for item in samples:
                 results.append(self._dict_to_tender(item))
                 if len(results) >= limit:

@@ -42,12 +42,18 @@ def health_check(db: Session = Depends(get_db)) -> dict[str, Any]:
     goszakup_mode = "mock_fallback" if client.is_mock_mode else "live_api"
 
     # 4. LLM provider mode
-    api_key = (
-        settings.anthropic_api_key.get_secret_value()
-        if hasattr(settings.anthropic_api_key, "get_secret_value")
-        else str(settings.anthropic_api_key)
-    )
-    llm_mode = "mock_fallback" if (not api_key or "mock" in api_key or "test" in api_key) else "live_claude"
+    from nova.config.llm import get_chat_model
+    llm_instance = get_chat_model()
+    if llm_instance is not None:
+        or_key = getattr(settings, "openrouter_api_key", None)
+        if or_key and str(or_key.get_secret_value() if hasattr(or_key, "get_secret_value") else or_key).strip() and "mock" not in str(or_key):
+            llm_mode = f"openrouter ({getattr(settings, 'openrouter_model', 'active')})"
+        elif settings.anthropic_api_key and "mock" not in str(settings.anthropic_api_key):
+            llm_mode = "live_claude"
+        else:
+            llm_mode = "live_llm"
+    else:
+        llm_mode = "mock_fallback"
 
     overall_status = "ok" if db_ok else "degraded"
 

@@ -12,11 +12,21 @@ from nova.config.settings import get_settings
 
 
 def get_engine(url: str, **kwargs) -> Engine:
-    """Create an Engine for the given URL. SQLite gets check_same_thread=False."""
+    """Create an Engine for the given URL. SQLite gets check_same_thread=False and timeout."""
     connect_args: dict = dict(kwargs.pop("connect_args", {}))
     if url.startswith("sqlite"):
         connect_args.setdefault("check_same_thread", False)
-    return create_engine(url, connect_args=connect_args, **kwargs)
+        connect_args.setdefault("timeout", 30.0)
+    engine = create_engine(url, connect_args=connect_args, **kwargs)
+    if url.startswith("sqlite"):
+        from sqlalchemy import event
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+    return engine
 
 
 @contextmanager

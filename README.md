@@ -160,13 +160,34 @@ alembic upgrade head
 
 ### 6. Запуск системы
 
-```bash
-# API сервер
-uvicorn app.main:app --reload --port 8000
+#### Вариант A: Полноценный Web Dashboard + Backend (Рекомендуется)
 
-# Или через CLI
-python -m app.cli run --task "Найти строительные тендеры в Алматы с бюджетом до 50 млн тенге"
+1. **Запуск FastAPI бэкенда (порт 8090):**
+```bash
+source venv/bin/activate
+uvicorn nova.api.main:app --host 0.0.0.0 --port 8090 --reload
 ```
+
+2. **Запуск Frontend Dashboard (порт 5180):**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Откройте браузер: `http://localhost:5180`
+
+> 💡 **Настройка портов:** Вы можете запустить бэкенд на любом порту (например, 8090, 8080 или 9000). Фронтенд автоматически проксирует запросы к `http://127.0.0.1:8090` (или к порту, указанному в `frontend/.env` `VITE_BACKEND_PORT=8090`). Если порт 5180 занят, Vite автоматически выберет следующий свободный порт.
+
+#### Вариант B: Через CLI терминал
+```bash
+source venv/bin/activate
+python -m nova.cli run --task "Капитальный ремонт школы в Алматы" --output markdown
+```
+
+#### Вариант C: REST API / SSE Realtime Streaming
+- **Swagger / OpenAPI UI:** `http://localhost:8090/docs`
+- **SSE Realtime Stream:** `GET http://localhost:8090/api/v1/tasks/{task_id}/stream?task=...`
+- **WebSocket Stream:** `ws://localhost:8090/ws/tasks/{task_id}`
 
 -----
 

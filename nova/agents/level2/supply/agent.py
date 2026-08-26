@@ -33,22 +33,15 @@ SUPPLY_TOOLS = [
 
 
 def create_supply_agent():
-    """Create a LangChain ReAct agent for Supply when Anthropic LLM is available."""
+    """Create a LangChain ReAct agent for Supply when live LLM is configured."""
     try:
-        from langchain_anthropic import ChatAnthropic
         from langgraph.prebuilt import create_react_agent
+        from nova.config.llm import get_chat_model
 
-        settings = get_settings()
-        api_key = settings.anthropic_api_key.get_secret_value() if hasattr(settings.anthropic_api_key, "get_secret_value") else str(settings.anthropic_api_key)
-        if not api_key or "mock" in api_key or "test" in api_key:
+        llm = get_chat_model(temperature=0.1, max_tokens=4096)
+        if llm is None:
             return None
 
-        llm = ChatAnthropic(
-            model_name="claude-3-5-sonnet-20241022",
-            anthropic_api_key=api_key,
-            temperature=0.1,
-            max_tokens=4096,
-        )
         return create_react_agent(llm, SUPPLY_TOOLS, prompt=SUPPLY_SYSTEM_PROMPT)
     except Exception as exc:
         logger.debug("Live Supply LLM agent initialization skipped: %s", exc)
